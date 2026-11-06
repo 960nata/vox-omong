@@ -35,7 +35,7 @@ export function MessageItem({
 
   return (
     <div
-      className={`group relative flex gap-3 p-3.5 rounded-[3px] border transition-colors ${
+      className={`group relative flex gap-2.5 sm:gap-3 p-3 sm:p-3.5 rounded-[3px] border transition-colors min-w-0 ${
         isAssistant
           ? "bg-[#161820] border-[#252a36] text-[#e5e7eb]"
           : "bg-[#1e1c1a] border-[#362e28] text-[#f3f4f6]"
@@ -82,7 +82,7 @@ export function MessageItem({
         )}
 
         {/* Text Body */}
-        <div className="text-sm leading-relaxed whitespace-pre-wrap select-text text-[#e2e5eb]">
+        <div className="text-sm leading-relaxed whitespace-pre-wrap select-text text-[#e2e5eb] break-words">
           {message.content}
         </div>
 

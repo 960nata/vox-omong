@@ -171,10 +171,10 @@ export function VoiceVisualizer({
   return (
     <div className="relative w-full h-28 bg-[#14171d] border border-[#2b303c] rounded-[3px] p-3 flex flex-col justify-between overflow-hidden shadow-inner">
       {/* Top status indicator header */}
-      <div className="flex items-center justify-between text-xs font-mono tracking-wider">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between text-xs font-mono tracking-wider gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <span
-            className={`inline-block w-2 h-2 rounded-[2px] transition-colors duration-200 ${
+            className={`inline-block w-2 h-2 rounded-[2px] shrink-0 transition-colors duration-200 ${
               isListening
                 ? "bg-[#10b981] animate-pulse"
                 : isSpeaking
@@ -184,7 +184,7 @@ export function VoiceVisualizer({
                 : "bg-[#4a5263]"
             }`}
           />
-          <span className="text-[#a1a7b4] uppercase">
+          <span className="text-[#a1a7b4] uppercase truncate text-[11px] sm:text-xs">
             {isListening
               ? "MIC LIVE · MENDENGARKAN"
               : isSpeaking
@@ -194,13 +194,13 @@ export function VoiceVisualizer({
               : "VOICE ENGINE · SIAGA"}
           </span>
         </div>
-        <div className="text-[#6d7585] text-[11px]">
+        <div className="text-[#6d7585] text-[10px] sm:text-[11px] shrink-0 hidden sm:block">
           {isListening ? "AUDIO IN: ACTIVE" : isSpeaking ? "SPEECH: SYNTHESIS" : "48kHz / PCM"}
         </div>
       </div>
 
       {/* Spectrum Canvas */}
-      <div className="w-full flex-1 relative mt-1">
+      <div className="w-full flex-1 relative mt-1 min-w-0">
         <canvas ref={canvasRef} className="w-full h-full block" />
       </div>
 

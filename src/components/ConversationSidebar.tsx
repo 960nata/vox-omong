@@ -13,6 +13,7 @@ interface ConversationSidebarProps {
   isOpen: boolean;
   onClose?: () => void;
   onCloseMobile?: () => void;
+  isDrawer?: boolean;
 }
 
 export function ConversationSidebar({
@@ -24,6 +25,7 @@ export function ConversationSidebar({
   isOpen,
   onClose,
   onCloseMobile,
+  isDrawer = false,
 }: ConversationSidebarProps) {
   const handleClose = onClose || onCloseMobile;
 
@@ -51,17 +53,20 @@ export function ConversationSidebar({
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  // Dragging mouse handler for sidebar resize
+  const isFloating = isMobile || isDrawer;
+
+  // Dragging mouse handler for sidebar resize (only active when not floating/drawer)
   const handleMouseDownResize = (e: React.MouseEvent) => {
+    if (isFloating) return;
     e.preventDefault();
     setIsResizing(true);
   };
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
+      if (!isResizing || isFloating) return;
       const newWidth = e.clientX;
-      const maxWidth = Math.min(480, Math.floor(window.innerWidth * 0.4));
+      const maxWidth = Math.min(400, Math.floor(window.innerWidth * 0.35));
       if (newWidth >= 180 && newWidth <= maxWidth) {
         setSidebarWidth(newWidth);
         try {
@@ -90,31 +95,31 @@ export function ConversationSidebar({
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
-  }, [isResizing]);
+  }, [isResizing, isFloating]);
 
-  if (!isOpen && !isMobile) {
+  if (!isOpen && !isFloating) {
     return null;
   }
 
   return (
     <>
-      {/* Mobile backdrop */}
-      {isOpen && isMobile && (
+      {/* Backdrop for mobile or drawer overlay mode */}
+      {isOpen && isFloating && (
         <div
           onClick={handleClose}
-          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-xs md:hidden animate-fadeIn"
+          className="fixed inset-0 z-40 bg-black/75 backdrop-blur-xs transition-opacity animate-fadeIn"
         />
       )}
 
       <aside
-        style={!isMobile && isOpen ? { width: `${sidebarWidth}px` } : undefined}
-        className={`fixed md:relative inset-y-0 left-0 z-50 md:z-20 bg-[#111318] border-r border-[#242935] flex flex-col shrink-0 shadow-2xl md:shadow-none select-text transition-all ${
-          isMobile
-            ? `w-72 sm:w-80 max-w-[85vw] transition-transform duration-200 ease-in-out ${
-                isOpen ? "translate-x-0" : "-translate-x-full"
+        style={!isFloating && isOpen ? { width: `${sidebarWidth}px` } : undefined}
+        className={`${
+          isFloating
+            ? `fixed inset-y-0 left-0 z-50 w-72 sm:w-80 max-w-[85vw] transition-transform duration-200 ease-in-out shadow-2xl ${
+                isOpen ? "translate-x-0" : "-translate-x-full pointer-events-none"
               }`
-            : "h-full"
-        }`}
+            : "relative inset-y-0 left-0 z-20 h-full shrink-0 shadow-none"
+        } bg-[#111318] border-r border-[#242935] flex flex-col select-text transition-all`}
       >
         {/* Brand Header & Close button */}
         <div className="p-3.5 border-b border-[#242934] flex items-center justify-between bg-[#13161d]">
@@ -170,7 +175,7 @@ export function ConversationSidebar({
                   key={conv.id}
                   onClick={() => {
                     onSelect(conv.id);
-                    if (isMobile && handleClose) handleClose();
+                    if (isFloating && handleClose) handleClose();
                   }}
                   className={`group relative flex items-center justify-between p-2.5 text-xs rounded-[3px] cursor-pointer border transition-colors ${
                     isActive
@@ -209,8 +214,8 @@ export function ConversationSidebar({
           </span>
         </div>
 
-        {/* Draggable Divider Handle (Right Border on desktop) */}
-        {!isMobile && (
+        {/* Draggable Divider Handle (Right Border on desktop when not drawer) */}
+        {!isFloating && (
           <div
             onMouseDown={handleMouseDownResize}
             title="Geser untuk menyesuaikan lebar sidebar"

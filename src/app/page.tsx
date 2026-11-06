@@ -60,6 +60,30 @@ export default function VoiceAiStudio() {
   const [activeProjectId, setActiveProjectId] = useState("default-workspace");
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
 
+  // Window viewport width & adaptive layout management
+  const [windowWidth, setWindowWidth] = useState<number>(
+    typeof window !== "undefined" ? window.innerWidth : 1280
+  );
+
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowWidth(window.innerWidth);
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const isNarrowScreen = windowWidth < 1180;
+  const isSidebarDrawer = isNarrowScreen && isRightPanelOpen;
+
+  // Auto-collapse sidebar on narrow screen when right workspace panel is open
+  useEffect(() => {
+    if (windowWidth < 1180 && isRightPanelOpen) {
+      setIsSidebarOpen(false);
+    }
+  }, [windowWidth, isRightPanelOpen]);
+
   // Refs for Speech Recognition & Audio
   const recognitionRef = useRef<any>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -828,15 +852,16 @@ export default function VoiceAiStudio() {
           activeId={activeConvId}
           onSelect={(id) => {
             setActiveConvId(id);
-            setIsSidebarOpen(false);
+            if (isSidebarDrawer) setIsSidebarOpen(false);
           }}
           onNew={handleNewConversation}
           onDelete={handleDeleteConversation}
+          isDrawer={isSidebarDrawer}
         />
 
         {/* Central Workspace (Chat Area - Responsive Fluid Grid) */}
         <main className="flex-1 flex flex-col h-full overflow-hidden bg-radial from-[#151821]/85 via-[#0d0f13]/90 to-[#08090d]/95 min-w-0">
-          <div className="flex-1 flex flex-col p-2.5 sm:p-4 md:p-5 overflow-hidden gap-2.5 sm:gap-3 w-full max-w-5xl 2xl:max-w-6xl mx-auto min-w-0 transition-all">
+          <div className="flex-1 flex flex-col p-2 sm:p-3 md:p-4 overflow-hidden gap-2 sm:gap-3 w-full max-w-5xl mx-auto min-w-0 transition-all">
           {/* Top Audio Waveform Monitor */}
           <VoiceVisualizer
             isListening={isListening}
@@ -902,6 +927,8 @@ export default function VoiceAiStudio() {
         }}
         initialUrl={previewUrl}
         onUrlChange={setPreviewUrl}
+        isSidebarOpen={isSidebarOpen}
+        isSidebarDrawer={isSidebarDrawer}
       />
     </div>
 

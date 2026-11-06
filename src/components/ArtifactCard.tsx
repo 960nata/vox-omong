@@ -839,26 +839,26 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
   return (
     <div className="w-full my-3 bg-[#121419] border border-[#282d3a] rounded-[3px] overflow-hidden shadow-lg text-[#e2e5eb]">
       {/* Top Header bar */}
-      <div className="px-3.5 py-2.5 flex items-center justify-between bg-[#151820] border-b border-[#232835]">
+      <div className="px-3 py-2 flex items-center justify-between bg-[#151820] border-b border-[#232835] gap-2 flex-wrap">
         <div
           onClick={() => setIsExpanded(!isExpanded)}
-          className="flex items-center gap-2 cursor-pointer select-none group"
+          className="flex items-center gap-2 cursor-pointer select-none group min-w-0"
         >
-          <span className="text-xs font-semibold text-[#f3f4f6]">
+          <span className="text-xs font-semibold text-[#f3f4f6] truncate">
             {artifact.files?.length || 0} files changed
           </span>
-          <span className="text-xs font-mono font-medium">
+          <span className="text-xs font-mono font-medium shrink-0">
             <span className="text-[#22c55e]">+{totalAdditions}</span>{" "}
             <span className="text-[#ef4444]">-{totalDeletions}</span>
           </span>
-          <span className="text-[#757d90] group-hover:text-white transition-colors">
+          <span className="text-[#757d90] group-hover:text-white transition-colors shrink-0">
             {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </span>
         </div>
 
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="px-2.5 py-1 text-xs font-mono bg-[#1d222c] hover:bg-[#282f3c] text-[#cbd5e1] hover:text-white border border-[#333c4d] rounded-[3px] flex items-center gap-1.5 transition-colors shadow-xs"
+          className="px-2 py-1 text-xs font-mono bg-[#1d222c] hover:bg-[#282f3c] text-[#cbd5e1] hover:text-white border border-[#333c4d] rounded-[3px] flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer shrink-0"
         >
           <Code2 className="w-3.5 h-3.5 text-[#ea580c]" />
           <span>Review</span>
@@ -874,23 +874,23 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
               <div
                 key={idx}
                 onClick={() => setSelectedFile(isSelected ? null : file)}
-                className={`px-3.5 py-2 flex items-center justify-between text-xs cursor-pointer transition-colors ${
+                className={`px-3 py-2 flex items-center justify-between text-xs cursor-pointer transition-colors gap-2 ${
                   isSelected ? "bg-[#1d2028]" : "hover:bg-[#181b22] bg-[#121419]"
                 }`}
               >
                 {/* Left: Badge + filename + path */}
-                <div className="flex items-center gap-2.5 min-w-0 pr-3">
+                <div className="flex items-center gap-2 min-w-0 truncate">
                   {renderFileBadge(file)}
-                  <span className="font-mono font-semibold text-[#f3f4f6] shrink-0">
+                  <span className="font-mono font-semibold text-[#f3f4f6] truncate text-xs">
                     {file.name}
                   </span>
-                  <span className="font-mono text-[#677083] text-[11px] truncate hidden sm:inline">
+                  <span className="font-mono text-[#677083] text-[11px] truncate hidden md:inline">
                     {file.path}
                   </span>
                 </div>
 
                 {/* Right: +Add -Del count */}
-                <div className="flex items-center gap-2 font-mono text-[11px] shrink-0">
+                <div className="flex items-center gap-1.5 font-mono text-[11px] shrink-0">
                   <span className="text-[#22c55e]">+{file.additions}</span>
                   <span className="text-[#ef4444]">-{file.deletions}</span>
                 </div>
@@ -902,14 +902,15 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
 
       {/* Expanded Code Diff Viewer for selected file */}
       {isExpanded && selectedFile && selectedFile.content && (
-        <div className="p-3 bg-[#0c0e12] border-t border-[#232835]">
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#1f2430] text-xs font-mono">
-            <span className="text-[#a1a8b8] flex items-center gap-1.5">
-              <span className="text-[#ea580c]">FILE:</span> {selectedFile.path}
+        <div className="p-3 bg-[#0c0e12] border-t border-[#232835] overflow-hidden">
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#1f2430] text-xs font-mono gap-2 flex-wrap">
+            <span className="text-[#a1a8b8] flex items-center gap-1.5 min-w-0 truncate">
+              <span className="text-[#ea580c] shrink-0">FILE:</span>
+              <span className="truncate">{selectedFile.path}</span>
             </span>
             <button
               onClick={() => handleCopyText(selectedFile.content || "")}
-              className="flex items-center gap-1 px-2 py-0.5 text-[11px] bg-[#191d26] hover:bg-[#232936] text-[#cbd5e1] border border-[#2e3544] rounded-[3px] transition-colors"
+              className="flex items-center gap-1 px-2 py-0.5 text-[11px] bg-[#191d26] hover:bg-[#232936] text-[#cbd5e1] border border-[#2e3544] rounded-[3px] transition-colors shrink-0 cursor-pointer"
             >
               {copied ? (
                 <>
@@ -923,7 +924,7 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
             </button>
           </div>
 
-          <pre className="p-3 bg-[#12141a] border border-[#1f2430] rounded-[3px] text-xs font-mono text-[#e2e8f0] overflow-x-auto max-h-64 scrollbar-thin leading-relaxed select-text">
+          <pre className="p-3 bg-[#12141a] border border-[#1f2430] rounded-[3px] text-xs font-mono text-[#e2e8f0] overflow-x-auto max-h-64 scrollbar-thin leading-relaxed select-text min-w-0">
             <code>{selectedFile.content}</code>
           </pre>
         </div>

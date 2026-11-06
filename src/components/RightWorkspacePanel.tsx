@@ -43,6 +43,8 @@ interface RightWorkspacePanelProps {
   onTriggerVoiceFeedback?: (text: string) => void;
   initialUrl?: string;
   onUrlChange?: (url: string) => void;
+  isSidebarOpen?: boolean;
+  isSidebarDrawer?: boolean;
 }
 
 interface TerminalLog {
@@ -72,9 +74,31 @@ export function RightWorkspacePanel({
   onTriggerVoiceFeedback,
   initialUrl = "http://localhost:3000",
   onUrlChange,
+  isSidebarOpen = false,
+  isSidebarDrawer = false,
 }: RightWorkspacePanelProps) {
+  // Compute maximum allowed width dynamically based on viewport, sidebar, and guaranteed chat min-width (360px)
+  const getMaxAllowedWidth = useCallback(() => {
+    if (typeof window === "undefined") return 600;
+    const effectiveSidebarWidth = (isSidebarOpen && !isSidebarDrawer && window.innerWidth >= 1180) ? 260 : 0;
+    const minChatWidth = 360;
+    return Math.max(300, window.innerWidth - effectiveSidebarWidth - minChatWidth);
+  }, [isSidebarOpen, isSidebarDrawer]);
+
   // --- 1. Resizing & Responsiveness state ---
-  const [panelWidth, setPanelWidth] = useState(520);
+  const [panelWidth, setPanelWidth] = useState(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("vox_workspace_width");
+        if (saved) {
+          const num = parseInt(saved, 10);
+          if (num >= 300 && num <= 1000) return num;
+        }
+      } catch {}
+      return window.innerWidth < 1180 ? Math.floor(window.innerWidth * 0.48) : 520;
+    }
+    return 520;
+  });
   const [isResizing, setIsResizing] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -83,24 +107,15 @@ export function RightWorkspacePanel({
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
       if (!mobile) {
-        // Clamp panel width so central chat is never smaller than 320px
-        const maxAllowed = Math.max(320, window.innerWidth - 320);
+        const maxAllowed = getMaxAllowedWidth();
         setPanelWidth((prev) => Math.min(prev, maxAllowed));
       }
     };
     handleResize();
     window.addEventListener("resize", handleResize);
 
-    try {
-      const savedWidth = localStorage.getItem("vox_workspace_width");
-      if (savedWidth) {
-        const num = parseInt(savedWidth, 10);
-        if (num >= 320 && num <= 1000) setPanelWidth(num);
-      }
-    } catch {}
-
     return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  }, [getMaxAllowedWidth]);
 
   const handleMouseDownResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -111,8 +126,8 @@ export function RightWorkspacePanel({
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
       const newWidth = window.innerWidth - e.clientX;
-      const maxAllowed = Math.max(320, window.innerWidth - 320);
-      if (newWidth >= 320 && newWidth <= maxAllowed) {
+      const maxAllowed = getMaxAllowedWidth();
+      if (newWidth >= 300 && newWidth <= maxAllowed) {
         setPanelWidth(newWidth);
         try {
           localStorage.setItem("vox_workspace_width", newWidth.toString());
@@ -140,7 +155,7 @@ export function RightWorkspacePanel({
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
-  }, [isResizing]);
+  }, [isResizing, getMaxAllowedWidth]);
 
   // --- Projects State ---
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([
@@ -676,7 +691,7 @@ export function RightWorkspacePanel({
 
   return (
     <div
-      style={!isMobile ? { width: `${panelWidth}px`, maxWidth: "calc(100vw - 320px)" } : undefined}
+      style={!isMobile ? { width: `${panelWidth}px`, maxWidth: `${getMaxAllowedWidth()}px` } : undefined}
       className={`bg-[#101217] border-l border-[#242936] shadow-2xl z-30 select-text overflow-hidden transition-all duration-75 flex flex-col ${
         isMobile
           ? "fixed inset-0 w-full h-full"

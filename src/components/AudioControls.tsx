@@ -255,7 +255,7 @@ export function AudioControls({
       )}
 
       {/* Quick Skills Pills Horizontal Bar */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs w-full min-w-0 shrink-0">
         <span className="text-[10px] font-mono font-bold text-[#ea580c] px-1.5 py-0.5 bg-[#251711] border border-[#ea580c]/30 rounded-[2px] shrink-0 uppercase tracking-wider">
           SKILLS:
         </span>
@@ -265,7 +265,7 @@ export function AudioControls({
             type="button"
             onClick={() => onSendMessage(s.prompt)}
             disabled={isProcessing}
-            className="shrink-0 px-2.5 py-1 bg-[#161922] hover:bg-[#222836] hover:border-[#ea580c]/60 text-[#a0abbd] hover:text-[#f3f4f6] border border-[#272e3d] rounded-[3px] text-[11px] font-mono transition-colors disabled:opacity-40"
+            className="shrink-0 px-2.5 py-1 bg-[#161922] hover:bg-[#222836] hover:border-[#ea580c]/60 text-[#a0abbd] hover:text-[#f3f4f6] border border-[#272e3d] rounded-[3px] text-[11px] font-mono transition-colors disabled:opacity-40 cursor-pointer"
           >
             {s.label}
           </button>
@@ -292,9 +292,9 @@ export function AudioControls({
         />
 
         {/* Bottom Internal Toolbar: Attachments + Jarvis + Mic + Send */}
-        <div className="px-2.5 pb-2 pt-1 flex items-center justify-between border-t border-[#1e2432] gap-2">
+        <div className="px-2 pb-2 pt-1 flex items-center justify-between border-t border-[#1e2432] gap-1.5 flex-wrap">
           {/* Left tools */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* Attachment Button */}
             <button
               type="button"
@@ -348,7 +348,7 @@ export function AudioControls({
           </div>
 
           {/* Right Action Icons: JARVIS, Voice Mic, Stop Speech, Send */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0 ml-auto">
             {/* Stop AI Audio playback button (only when speaking) */}
             {isSpeaking && (
               <button
@@ -358,7 +358,7 @@ export function AudioControls({
                 className="px-2 py-1 bg-[#2b1712] border border-[#ea580c] hover:bg-[#381d17] text-[#f97316] rounded-[3px] flex items-center gap-1 text-[11px] font-mono transition-colors shadow-xs cursor-pointer animate-pulse"
               >
                 <VolumeX className="w-3.5 h-3.5 text-[#ea580c]" />
-                <span>DIAM</span>
+                <span className="hidden sm:inline">DIAM</span>
               </button>
             )}
 
@@ -374,8 +374,8 @@ export function AudioControls({
               }`}
             >
               <Sparkles className={`w-3.5 h-3.5 ${jarvisMode ? "text-[#38bdf8] animate-pulse" : "text-[#697488]"}`} />
-              <span className="text-[10px] font-bold hidden md:inline">
-                {jarvisMode ? "JARVIS" : "JARVIS OFF"}
+              <span className="text-[10px] font-bold hidden sm:inline">
+                {jarvisMode ? "JARVIS" : "OFF"}
               </span>
             </button>
 
@@ -394,12 +394,12 @@ export function AudioControls({
               {isListening ? (
                 <>
                   <MicOff className="w-3.5 h-3.5 text-[#ea580c]" />
-                  <span className="text-[10px] text-[#ea580c] font-bold hidden md:inline">REC</span>
+                  <span className="text-[10px] text-[#ea580c] font-bold hidden sm:inline">REC</span>
                 </>
               ) : (
                 <>
                   <Mic className="w-3.5 h-3.5 text-[#ea580c]" />
-                  <span className="text-[10px] hidden md:inline">VOICE</span>
+                  <span className="text-[10px] hidden sm:inline">VOICE</span>
                 </>
               )}
             </button>
