@@ -836,8 +836,8 @@ export default function VoiceAiStudio() {
                 <p className="text-sm font-medium text-[#c0c6d4]">
                   JARVIS Voice Engine Online
                 </p>
-                <p className="text-xs text-[#707a8e] mt-1 max-w-sm">
-                  Tekan tombol &quot;TEKAN &amp; BICARA&quot; di bawah atau aktifkan mode JARVIS. Anda bisa bicara dengan jeda santai tanpa takut terputus sebelum kalimat selesai.
+                <p className="text-xs text-[#707a8e] mt-1.5 max-w-md leading-relaxed">
+                  Gunakan bilah input di bawah, klik ikon mikrofon, atau aktifkan mode JARVIS hands-free. Pilih Claude Skills untuk membuat slide presentasi animasi (.pptx / video), invoice PDF resmi, dan coding web interaktif.
                 </p>
               </div>
             ) : (

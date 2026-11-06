@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { ArtifactItem, ArtifactFile, InvoiceData, SpreadsheetData, SlideDeckData, WebPreviewData } from "@/lib/types";
+import { exportToPptxFile, renderSlideDeckToVideo } from "@/lib/claudeSkills";
 import {
   FileText,
   ChevronDown,
@@ -42,6 +43,7 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
 
   // PPT Video Export & Presentation State
   const [isExportingVideo, setIsExportingVideo] = useState(false);
+  const [isExportingPptx, setIsExportingPptx] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
   const [showPresentationModal, setShowPresentationModal] = useState(false);
   const [isPlayingSlideshow, setIsPlayingSlideshow] = useState(false);
@@ -320,157 +322,47 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
     );
   }
 
-  // Export Slides to Animated Video (.webm / MP4) via Canvas & MediaRecorder
+  // Export Slides to Animated Video (.webm) via Claude Video Animator Engine
   const handleExportVideo = async (deck: SlideDeckData) => {
     if (typeof window === "undefined") return;
     setIsExportingVideo(true);
     setVideoProgress(5);
 
     try {
-      const canvas = document.createElement("canvas");
-      canvas.width = 1280;
-      canvas.height = 720;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas context is not available");
+      const blob = await renderSlideDeckToVideo(deck, {
+        fps: 30,
+        slideDurationSec: 3.5,
+        onProgress: (pct) => setVideoProgress(pct),
+      });
 
-      const stream = canvas.captureStream(30);
-      let recorder: MediaRecorder;
-      try {
-        recorder = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp9" });
-      } catch {
-        recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
-      }
-
-      const recordedChunks: Blob[] = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) recordedChunks.push(e.data);
-      };
-
-      recorder.onstop = () => {
-        const blob = new Blob(recordedChunks, { type: "video/webm" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${deck.deckTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}_Presentation.webm`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        setIsExportingVideo(false);
-        setVideoProgress(100);
-      };
-
-      recorder.start();
-
-      const totalSlides = deck.slides.length;
-      const fps = 30;
-      const slideDurationSec = 3.5;
-      const totalFramesPerSlide = Math.floor(fps * slideDurationSec);
-
-      for (let sIdx = 0; sIdx < totalSlides; sIdx++) {
-        const slide = deck.slides[sIdx];
-
-        for (let frame = 0; frame < totalFramesPerSlide; frame++) {
-          const progressInSlide = frame / totalFramesPerSlide;
-
-          // 1. Cyber dark studio gradient
-          const grad = ctx.createLinearGradient(0, 0, 1280, 720);
-          grad.addColorStop(0, "#0a0c10");
-          grad.addColorStop(0.5, "#131622");
-          grad.addColorStop(1, "#090b0e");
-          ctx.fillStyle = grad;
-          ctx.fillRect(0, 0, 1280, 720);
-
-          // Grid lines
-          ctx.strokeStyle = "rgba(43, 51, 69, 0.25)";
-          ctx.lineWidth = 1;
-          for (let x = 0; x < 1280; x += 80) {
-            ctx.beginPath();
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, 720);
-            ctx.stroke();
-          }
-          for (let y = 0; y < 720; y += 60) {
-            ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(1280, y);
-            ctx.stroke();
-          }
-
-          // Top Header Accent
-          ctx.fillStyle = "#ea580c";
-          ctx.fillRect(80, 65, 8, 42);
-
-          ctx.font = "bold 16px 'Courier New', monospace";
-          ctx.fillStyle = "#ea580c";
-          ctx.fillText("VOX·AI PRESENTATION STUDIO", 100, 82);
-
-          ctx.font = "14px 'Courier New', monospace";
-          ctx.fillStyle = "#717d96";
-          ctx.fillText(`SLIDE ${sIdx + 1} OF ${totalSlides}`, 100, 102);
-
-          // Slide Title
-          const titleAlpha = Math.min(1, frame / 12);
-          ctx.globalAlpha = titleAlpha;
-          ctx.font = "bold 38px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-          ctx.fillStyle = "#f8fafc";
-          ctx.fillText(slide.title, 80, 185);
-          ctx.globalAlpha = 1;
-
-          // Divider
-          ctx.strokeStyle = "#273042";
-          ctx.beginPath();
-          ctx.moveTo(80, 215);
-          ctx.lineTo(1200, 215);
-          ctx.stroke();
-
-          // Bullets Cascade
-          slide.bullets.forEach((bullet, bIdx) => {
-            const bulletDelayFrame = 12 + bIdx * 18;
-            if (frame >= bulletDelayFrame) {
-              const bAlpha = Math.min(1, (frame - bulletDelayFrame) / 12);
-              ctx.globalAlpha = bAlpha;
-
-              ctx.fillStyle = "#38bdf8";
-              ctx.beginPath();
-              ctx.arc(95, 280 + bIdx * 65, 6, 0, Math.PI * 2);
-              ctx.fill();
-
-              ctx.font = "22px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-              ctx.fillStyle = "#cbd5e1";
-              ctx.fillText(bullet, 120, 288 + bIdx * 65);
-              ctx.globalAlpha = 1;
-            }
-          });
-
-          // Speaker Notes at bottom
-          if (slide.speakerNotes) {
-            ctx.fillStyle = "rgba(20, 24, 34, 0.85)";
-            ctx.fillRect(80, 595, 1120, 55);
-            ctx.strokeStyle = "#2e3748";
-            ctx.strokeRect(80, 595, 1120, 55);
-
-            ctx.font = "italic 16px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-            ctx.fillStyle = "#94a3b8";
-            ctx.fillText(`Presenter Note: ${slide.speakerNotes}`, 100, 628);
-          }
-
-          // Progress Bar
-          const overallProgress = (sIdx + progressInSlide) / totalSlides;
-          ctx.fillStyle = "#ea580c";
-          ctx.fillRect(0, 712, 1280 * overallProgress, 8);
-
-          await new Promise((r) => setTimeout(r, 1000 / fps));
-        }
-
-        setVideoProgress(Math.round(((sIdx + 1) / totalSlides) * 100));
-      }
-
-      recorder.stop();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${deck.deckTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}_Presentation.webm`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setVideoProgress(100);
     } catch (err) {
       console.error("Video export error:", err);
       alert("Gagal mengekspor video. Pastikan browser mendukung MediaRecorder API.");
+    } finally {
       setIsExportingVideo(false);
+    }
+  };
+
+  // Export Slides to native PowerPoint (.pptx) via Claude PPTX Skill (pptxgenjs)
+  const handleExportPptx = async (deck: SlideDeckData) => {
+    if (typeof window === "undefined") return;
+    setIsExportingPptx(true);
+    try {
+      await exportToPptxFile(deck);
+    } catch (err) {
+      console.error("PPTX export error:", err);
+      alert("Gagal membuat file PowerPoint (.pptx).");
+    } finally {
+      setIsExportingPptx(false);
     }
   };
 
@@ -495,12 +387,33 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
               <div className="text-[11px] text-[#788195] font-mono flex items-center gap-1.5">
                 <span>Slide {currentSlideIndex + 1} dari {deck.slides.length}</span>
                 <span>•</span>
-                <span className="text-[#38bdf8]">ANIMATED DECK</span>
+                <span className="text-[#38bdf8]">CLAUDE PPTX &amp; VIDEO SKILL</span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+            {/* Download Native PowerPoint .PPTX Button */}
+            <button
+              type="button"
+              onClick={() => handleExportPptx(deck)}
+              disabled={isExportingPptx}
+              title="Unduh file Microsoft PowerPoint asli (.pptx)"
+              className="px-2.5 py-1 text-xs font-mono bg-[#221c17] hover:bg-[#30251c] border border-[#ea580c]/50 text-[#f97316] rounded-[3px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {isExportingPptx ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#ea580c]" />
+                  <span>Menyimpan .PPTX...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-3.5 h-3.5 text-[#ea580c]" />
+                  <span>Unduh .PPTX</span>
+                </>
+              )}
+            </button>
+
             {/* Export to Animated Video Button */}
             <button
               type="button"
@@ -642,16 +555,28 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
               </div>
 
               {/* Modal Bottom Navigator */}
-              <div className="flex items-center justify-between px-5 py-3 bg-[#131722] border-t border-[#222a3b]">
-                <button
-                  type="button"
-                  onClick={() => handleExportVideo(deck)}
-                  disabled={isExportingVideo}
-                  className="px-3 py-1.5 text-xs font-mono bg-[#1c2232] hover:bg-[#252d42] border border-[#38bdf8]/50 text-[#38bdf8] rounded-[3px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  <Film className="w-3.5 h-3.5" />
-                  <span>{isExportingVideo ? `Rendering Video ${videoProgress}%...` : "Export ke Video MP4/WebM"}</span>
-                </button>
+              <div className="flex items-center justify-between px-5 py-3 bg-[#131722] border-t border-[#222a3b] flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleExportPptx(deck)}
+                    disabled={isExportingPptx}
+                    className="px-3 py-1.5 text-xs font-mono bg-[#221c17] hover:bg-[#30251c] border border-[#ea580c]/50 text-[#f97316] rounded-[3px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <Download className="w-3.5 h-3.5 text-[#ea580c]" />
+                    <span>{isExportingPptx ? "Menyimpan .PPTX..." : "Unduh .PPTX"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExportVideo(deck)}
+                    disabled={isExportingVideo}
+                    className="px-3 py-1.5 text-xs font-mono bg-[#1c2232] hover:bg-[#252d42] border border-[#38bdf8]/50 text-[#38bdf8] rounded-[3px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <Film className="w-3.5 h-3.5" />
+                    <span>{isExportingVideo ? `Rendering Video ${videoProgress}%...` : "Export ke Video MP4/WebM"}</span>
+                  </button>
+                </div>
 
                 <div className="flex items-center gap-2">
                   <button
