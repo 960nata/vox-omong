@@ -104,6 +104,8 @@ export interface VoiceSettings {
   rate: number;
   autoSpeak: boolean;
   systemPrompt: string;
+  jarvisMode?: boolean;
+  silenceTimeoutMs?: number;
   githubToken?: string;
   githubRepoUrl?: string;
   vercelToken?: string;

@@ -9,6 +9,7 @@ import { MessageItem } from "@/components/MessageItem";
 import { SettingsModal, NEURAL_VOICES } from "@/components/SettingsModal";
 import { RightWorkspacePanel, WorkspaceTab } from "@/components/RightWorkspacePanel";
 import { CoworkerCursorOperator } from "@/components/CoworkerCursorOperator";
+import { playJarvisSound } from "@/lib/jarvisSounds";
 import {
   Menu,
   Settings as SettingsIcon,
@@ -31,6 +32,8 @@ const DEFAULT_SETTINGS: VoiceSettings = {
   rate: 1.0,
   autoSpeak: true,
   systemPrompt: "",
+  jarvisMode: true,
+  silenceTimeoutMs: 2200,
 };
 
 export default function VoiceAiStudio() {
@@ -44,6 +47,7 @@ export default function VoiceAiStudio() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
+  const [jarvisMode, setJarvisMode] = useState(true);
 
   // Settings & Panels
   const [settings, setSettings] = useState<VoiceSettings>(DEFAULT_SETTINGS);
@@ -61,8 +65,18 @@ export default function VoiceAiStudio() {
   const activeConvRef = useRef<string | null>(activeConvId);
   const settingsRef = useRef<VoiceSettings>(settings);
 
+  // JARVIS VAD (Voice Activity Detection) & State Refs
+  const transcriptAccumulatorRef = useRef<string>("");
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isSpeakingRef = useRef<boolean>(false);
+  const isProcessingRef = useRef<boolean>(false);
+  const jarvisModeRef = useRef<boolean>(true);
+
   activeConvRef.current = activeConvId;
   settingsRef.current = settings;
+  isSpeakingRef.current = isSpeaking;
+  isProcessingRef.current = isProcessing;
+  jarvisModeRef.current = jarvisMode;
 
   // Load saved settings from localStorage
   useEffect(() => {
@@ -76,6 +90,9 @@ export default function VoiceAiStudio() {
           ttsProvider: parsed.ttsProvider || "neural",
           neuralVoice: parsed.neuralVoice || "id-ID-GadisNeural",
         });
+        if (typeof parsed.jarvisMode === "boolean") {
+          setJarvisMode(parsed.jarvisMode);
+        }
       }
     } catch (e) {
       console.warn("Could not load stored settings", e);
@@ -161,6 +178,7 @@ export default function VoiceAiStudio() {
       window.speechSynthesis.cancel();
     }
     setIsSpeaking(false);
+    isSpeakingRef.current = false;
   };
 
   // Speak text using Microsoft Edge Neural TTS or Browser Speech
@@ -180,6 +198,7 @@ export default function VoiceAiStudio() {
     if (settingsRef.current.ttsProvider === "neural") {
       try {
         setIsSpeaking(true);
+        isSpeakingRef.current = true;
         const res = await fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -199,12 +218,22 @@ export default function VoiceAiStudio() {
 
           audio.onended = () => {
             setIsSpeaking(false);
+            isSpeakingRef.current = false;
             currentAudioRef.current = null;
             URL.revokeObjectURL(audioUrl);
+
+            // JARVIS Continuous Loop: auto resume listening if hands-free is enabled
+            if (jarvisModeRef.current && !isProcessingRef.current) {
+              setTimeout(() => {
+                playJarvisSound("listen");
+                startListening();
+              }, 400);
+            }
           };
 
           audio.onerror = () => {
             setIsSpeaking(false);
+            isSpeakingRef.current = false;
             currentAudioRef.current = null;
             URL.revokeObjectURL(audioUrl);
           };
@@ -220,6 +249,7 @@ export default function VoiceAiStudio() {
     // 2. Fallback to Browser SpeechSynthesis
     if (typeof window === "undefined" || !window.speechSynthesis) {
       setIsSpeaking(false);
+      isSpeakingRef.current = false;
       return;
     }
 
@@ -235,9 +265,26 @@ export default function VoiceAiStudio() {
       if (matched) utterance.voice = matched;
     }
 
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
+    utterance.onstart = () => {
+      setIsSpeaking(true);
+      isSpeakingRef.current = true;
+    };
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
+
+      // JARVIS Continuous Loop: auto resume listening
+      if (jarvisModeRef.current && !isProcessingRef.current) {
+        setTimeout(() => {
+          playJarvisSound("listen");
+          startListening();
+        }, 400);
+      }
+    };
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
+    };
 
     window.speechSynthesis.speak(utterance);
   };
@@ -248,9 +295,35 @@ export default function VoiceAiStudio() {
 
     stopSpeaking();
     setIsProcessing(true);
+    isProcessingRef.current = true;
     setLiveTranscript("");
 
-    const cleanQuery = text.toLowerCase();
+    const cleanQuery = text.toLowerCase().trim();
+
+    // JARVIS Wake Word Quick Response
+    if (cleanQuery === "jarvis" || cleanQuery === "halo jarvis" || cleanQuery === "hey jarvis" || cleanQuery === "hai jarvis") {
+      const jarvisGreet = "Ya cuy, Jarvis online dan standby! Mau ngerjain coding, dokumen, terminal, atau deploy apa sekarang?";
+      const targetConvId = activeConvId || "conv-default";
+      const userMsg: Message = {
+        id: `usr-${Date.now()}`,
+        conversationId: targetConvId,
+        role: "user",
+        content: text,
+        timestamp: new Date().toISOString(),
+      };
+      const assistantMsg: Message = {
+        id: `asst-${Date.now()}`,
+        conversationId: targetConvId,
+        role: "assistant",
+        content: jarvisGreet,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      speakText(jarvisGreet);
+      setIsProcessing(false);
+      isProcessingRef.current = false;
+      return;
+    }
 
     // Voice / text command panel switches
     if (cleanQuery.includes("terminal") || cleanQuery.includes("buka terminal") || cleanQuery.includes("cek terminal")) {
@@ -349,22 +422,32 @@ export default function VoiceAiStudio() {
       console.error("Chat error:", err);
     } finally {
       setIsProcessing(false);
+      isProcessingRef.current = false;
     }
   };
 
-  // Initialize Speech Recognition
+  // Initialize JARVIS Continuous Speech Recognition with VAD (Voice Activity Detection)
   const startListening = async () => {
     stopSpeaking();
+    playJarvisSound("wake");
+
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    transcriptAccumulatorRef.current = "";
 
     // 1. Acquire microphone stream for real-time visualizer
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      setAudioStream(stream);
+      if (!audioStream) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        setAudioStream(stream);
+      }
     } catch (err) {
       console.warn("Could not capture microphone stream for visualizer:", err);
     }
 
-    // 2. Setup SpeechRecognition
+    // 2. Setup Web SpeechRecognition
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -373,9 +456,15 @@ export default function VoiceAiStudio() {
       return;
     }
 
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch {}
+    }
+
     const recognition = new SpeechRecognition();
     recognition.lang = settingsRef.current.language;
-    recognition.continuous = false; // single sentence turn
+    recognition.continuous = true; // JARVIS: Continuous listening, DO NOT abort on micro-pauses!
     recognition.interimResults = true;
 
     recognition.onstart = () => {
@@ -383,42 +472,89 @@ export default function VoiceAiStudio() {
       setLiveTranscript("");
     };
 
+    // VAD Silence Timeout: 2.2 seconds allows the user to pause, breathe, or think without premature cutoff
+    const SILENCE_THRESHOLD_MS = settingsRef.current.silenceTimeoutMs || 2200;
+
     recognition.onresult = (event: any) => {
+      // Natural Barge-In: if JARVIS is talking while user speaks, interrupt immediately!
+      if (isSpeakingRef.current) {
+        stopSpeaking();
+        playJarvisSound("interrupt");
+      }
+
+      let currentFinal = "";
       let interim = "";
-      let final = "";
 
       for (let i = event.resultIndex; i < event.results.length; ++i) {
         if (event.results[i].isFinal) {
-          final += event.results[i][0].transcript;
+          currentFinal += event.results[i][0].transcript + " ";
         } else {
           interim += event.results[i][0].transcript;
         }
       }
 
-      setLiveTranscript(interim || final);
+      if (currentFinal) {
+        transcriptAccumulatorRef.current += currentFinal;
+      }
 
-      if (final.trim()) {
-        stopListening();
-        handleSendMessage(final.trim());
+      const fullSpoken = (transcriptAccumulatorRef.current + " " + interim).trim();
+      setLiveTranscript(fullSpoken);
+
+      // Reset the silence debounce timer on every spoken syllable
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+
+      // Only schedule finalization when user actually pauses for SILENCE_THRESHOLD_MS
+      if (fullSpoken.length > 0) {
+        silenceTimerRef.current = setTimeout(() => {
+          const candidate = (transcriptAccumulatorRef.current + " " + interim).trim();
+          if (candidate && !isProcessingRef.current) {
+            playJarvisSound("sent");
+            stopListening();
+            transcriptAccumulatorRef.current = "";
+            handleSendMessage(candidate);
+          }
+        }, SILENCE_THRESHOLD_MS);
       }
     };
 
     recognition.onerror = (event: any) => {
       console.warn("Speech recognition error:", event.error);
-      stopListening();
+      if (event.error !== "no-speech") {
+        stopListening();
+      }
     };
 
     recognition.onend = () => {
-      setIsListening(false);
+      // In JARVIS continuous mode, auto-restart if still listening and not processing
+      if (isListening && !isProcessingRef.current) {
+        try {
+          recognition.start();
+        } catch {}
+      } else {
+        setIsListening(false);
+      }
     };
 
     recognitionRef.current = recognition;
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (e) {
+      console.warn("Recognition start failed:", e);
+    }
   };
 
   const stopListening = () => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+      } catch {}
       recognitionRef.current = null;
     }
     if (audioStream) {
@@ -509,6 +645,14 @@ export default function VoiceAiStudio() {
                 VOX·AI <span className="text-[#ea580c] text-xs font-normal">STUDIO</span>
               </h1>
             </div>
+
+            {/* JARVIS Mode Badge */}
+            {jarvisMode && (
+              <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 bg-[#142338] border border-[#38bdf8]/60 rounded-[3px] text-[10px] font-mono text-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.2)]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#38bdf8] animate-ping" />
+                <span>JARVIS PROTOCOL ACTIVE</span>
+              </div>
+            )}
           </div>
 
           {/* Quick Tools & Right Panel Toggles */}
@@ -621,10 +765,10 @@ export default function VoiceAiStudio() {
               <div className="h-full flex flex-col items-center justify-center text-center p-6 text-[#5b6477]">
                 <Volume2 className="w-10 h-10 mb-3 text-[#ea580c]/60" />
                 <p className="text-sm font-medium text-[#c0c6d4]">
-                  Konsol Suara Siap Digunakan
+                  JARVIS Voice Engine Online
                 </p>
                 <p className="text-xs text-[#707a8e] mt-1 max-w-sm">
-                  Tekan tombol &quot;TEKAN &amp; BICARA&quot; di bawah untuk berbicara, upload gambar untuk jadikan kode, atau kelola folder &amp; live preview di panel kanan yang bisa digeser.
+                  Tekan tombol &quot;TEKAN &amp; BICARA&quot; di bawah atau aktifkan mode JARVIS. Anda bisa bicara dengan jeda santai tanpa takut terputus sebelum kalimat selesai.
                 </p>
               </div>
             ) : (
@@ -641,7 +785,7 @@ export default function VoiceAiStudio() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Interactive Voice & Text Controller with Image Upload */}
+          {/* Interactive Voice & Text Controller with Image Upload & JARVIS Mode */}
           <AudioControls
             isListening={isListening}
             isSpeaking={isSpeaking}
@@ -651,6 +795,8 @@ export default function VoiceAiStudio() {
             onSendMessage={handleSendMessage}
             onStopSpeaking={stopSpeaking}
             language={settings.language}
+            jarvisMode={jarvisMode}
+            onToggleJarvisMode={() => setJarvisMode(!jarvisMode)}
             onOpenExplorer={() => {
               setIsRightPanelOpen(true);
               setWorkspaceTab("explorer");

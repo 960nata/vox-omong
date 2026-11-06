@@ -24,6 +24,8 @@ interface AudioControlsProps {
   onStopSpeaking: () => void;
   language: "id-ID" | "en-US";
   onOpenExplorer?: () => void;
+  jarvisMode?: boolean;
+  onToggleJarvisMode?: () => void;
 }
 
 const QUICK_PROMPTS_ID = [
@@ -62,6 +64,8 @@ export function AudioControls({
   onStopSpeaking,
   language,
   onOpenExplorer,
+  jarvisMode = true,
+  onToggleJarvisMode,
 }: AudioControlsProps) {
   const [inputText, setInputText] = useState("");
   const [attachedImage, setAttachedImage] = useState<{
@@ -200,15 +204,24 @@ export function AudioControls({
 
       {/* Live speech preview if speaking/listening */}
       {(isListening || liveTranscript) && (
-        <div className="p-2.5 bg-[#1a1e27] border border-[#ea580c]/40 rounded-[3px] flex items-center justify-between text-xs font-mono animate-fadeIn">
-          <div className="flex items-center gap-2 text-[#f97316] overflow-hidden">
-            <span className="w-2 h-2 rounded-[2px] bg-[#ea580c] animate-ping shrink-0" />
-            <span className="text-[#a6b0c2] text-[11px] shrink-0 uppercase">Transkrip Live:</span>
-            <span className="text-[#f3f4f6] truncate italic font-sans font-medium">
-              {liveTranscript || "Mendengarkan ucapanmu (coba katakan: 'upload gambar' atau 'buat folder test')..."}
+        <div className="p-2.5 bg-[#171c26] border border-[#38bdf8]/50 rounded-[3px] flex items-center justify-between text-xs font-mono animate-fadeIn shadow-lg">
+          <div className="flex items-center gap-2 text-[#38bdf8] overflow-hidden">
+            <span className="w-2.5 h-2.5 rounded-[2px] bg-[#38bdf8] animate-ping shrink-0" />
+            <span className="text-[#93c5fd] text-[11px] shrink-0 font-bold tracking-wider">
+              {jarvisMode ? "JARVIS LISTENING:" : "TRANSKRIP LIVE:"}
+            </span>
+            <span className="text-[#f8fafc] truncate italic font-sans font-medium">
+              {liveTranscript || "Mendengarkan ucapanmu (bebas bicara & jeda santai, VAD 2.2s)..."}
             </span>
           </div>
-          <span className="text-[10px] text-[#717b8f] shrink-0 font-mono ml-2">STT ON</span>
+          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+            <span className="text-[10px] text-[#38bdf8] font-mono px-1.5 py-0.5 bg-[#1e293b] border border-[#334155] rounded-[2px]">
+              VAD 2.2S
+            </span>
+            <span className="text-[10px] text-[#10b981] font-mono px-1.5 py-0.5 bg-[#14291f] border border-[#166534] rounded-[2px]">
+              CONTINUOUS
+            </span>
+          </div>
         </div>
       )}
 
@@ -282,6 +295,21 @@ export function AudioControls({
               <span className="sm:hidden">BICARA</span>
             </>
           )}
+        </button>
+
+        {/* JARVIS Hands-Free Mode Toggle */}
+        <button
+          type="button"
+          onClick={onToggleJarvisMode}
+          title={jarvisMode ? "JARVIS Hands-Free Mode Aktif" : "Aktifkan Mode JARVIS"}
+          className={`px-3 py-3 rounded-[3px] border font-mono text-xs flex items-center gap-1.5 transition-all shrink-0 ${
+            jarvisMode
+              ? "bg-[#182335] border-[#38bdf8] text-[#38bdf8] shadow-[0_0_10px_rgba(56,189,248,0.25)]"
+              : "bg-[#181b22] border-[#2c3240] text-[#788295] hover:text-[#f3f4f6]"
+          }`}
+        >
+          <Sparkles className={`w-4 h-4 ${jarvisMode ? "text-[#38bdf8] animate-pulse" : "text-[#788295]"}`} />
+          <span className="hidden xl:inline">{jarvisMode ? "JARVIS ON" : "JARVIS OFF"}</span>
         </button>
 
         {/* Image Attachment Button */}
