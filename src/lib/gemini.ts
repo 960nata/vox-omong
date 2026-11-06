@@ -436,12 +436,15 @@ export function VisualCardComponent() {
       id: `art-slides-${Date.now()}`,
       type: "slides",
       title: slideDeck.deckTitle,
-      summary: `Slide presentasi interaktif dengan navigasi slide, poin utama, dan catatan presenter.`,
+      summary: `Slide presentasi interaktif dengan navigasi slide, poin utama, catatan presenter, dan render video animasi MP4/WebM otomatis.`,
       slides: slideDeck,
       status: "completed",
     };
 
-    const spokenText = `Slide presentasi interaktif sudah selesai saya buatkan. Anda dapat berpindah slide dan melihat catatan pembicara pada kartu presentasi di bawah.`;
+    const spokenText =
+      p.includes("video") || p.includes("animasi")
+        ? `Slide presentasi dan modul video animasi sudah selesai saya buatkan. Anda dapat langsung mengklik tombol Export Video untuk mengunduh rekaman animasinya.`
+        : `Slide presentasi interaktif sudah selesai saya buatkan. Anda dapat memutar presentasi atau mengekspornya ke video animasi pada kartu di bawah.`;
     return { reply: spokenText, artifact };
   }
 

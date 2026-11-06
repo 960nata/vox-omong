@@ -18,6 +18,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Printer,
+  Film,
+  Play,
+  RotateCcw,
+  Sparkles,
+  Loader2,
+  Maximize2,
+  X,
 } from "lucide-react";
 
 interface ArtifactCardProps {
@@ -32,6 +39,12 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
   const [copied, setCopied] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+
+  // PPT Video Export & Presentation State
+  const [isExportingVideo, setIsExportingVideo] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(0);
+  const [showPresentationModal, setShowPresentationModal] = useState(false);
+  const [isPlayingSlideshow, setIsPlayingSlideshow] = useState(false);
 
   const handleCopyText = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -307,8 +320,162 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
     );
   }
 
+  // Export Slides to Animated Video (.webm / MP4) via Canvas & MediaRecorder
+  const handleExportVideo = async (deck: SlideDeckData) => {
+    if (typeof window === "undefined") return;
+    setIsExportingVideo(true);
+    setVideoProgress(5);
+
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1280;
+      canvas.height = 720;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas context is not available");
+
+      const stream = canvas.captureStream(30);
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp9" });
+      } catch {
+        recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+      }
+
+      const recordedChunks: Blob[] = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunks.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunks, { type: "video/webm" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${deck.deckTitle.replace(/[^a-zA-Z0-9_-]/g, "_")}_Presentation.webm`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setIsExportingVideo(false);
+        setVideoProgress(100);
+      };
+
+      recorder.start();
+
+      const totalSlides = deck.slides.length;
+      const fps = 30;
+      const slideDurationSec = 3.5;
+      const totalFramesPerSlide = Math.floor(fps * slideDurationSec);
+
+      for (let sIdx = 0; sIdx < totalSlides; sIdx++) {
+        const slide = deck.slides[sIdx];
+
+        for (let frame = 0; frame < totalFramesPerSlide; frame++) {
+          const progressInSlide = frame / totalFramesPerSlide;
+
+          // 1. Cyber dark studio gradient
+          const grad = ctx.createLinearGradient(0, 0, 1280, 720);
+          grad.addColorStop(0, "#0a0c10");
+          grad.addColorStop(0.5, "#131622");
+          grad.addColorStop(1, "#090b0e");
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, 1280, 720);
+
+          // Grid lines
+          ctx.strokeStyle = "rgba(43, 51, 69, 0.25)";
+          ctx.lineWidth = 1;
+          for (let x = 0; x < 1280; x += 80) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, 720);
+            ctx.stroke();
+          }
+          for (let y = 0; y < 720; y += 60) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(1280, y);
+            ctx.stroke();
+          }
+
+          // Top Header Accent
+          ctx.fillStyle = "#ea580c";
+          ctx.fillRect(80, 65, 8, 42);
+
+          ctx.font = "bold 16px 'Courier New', monospace";
+          ctx.fillStyle = "#ea580c";
+          ctx.fillText("VOX·AI PRESENTATION STUDIO", 100, 82);
+
+          ctx.font = "14px 'Courier New', monospace";
+          ctx.fillStyle = "#717d96";
+          ctx.fillText(`SLIDE ${sIdx + 1} OF ${totalSlides}`, 100, 102);
+
+          // Slide Title
+          const titleAlpha = Math.min(1, frame / 12);
+          ctx.globalAlpha = titleAlpha;
+          ctx.font = "bold 38px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+          ctx.fillStyle = "#f8fafc";
+          ctx.fillText(slide.title, 80, 185);
+          ctx.globalAlpha = 1;
+
+          // Divider
+          ctx.strokeStyle = "#273042";
+          ctx.beginPath();
+          ctx.moveTo(80, 215);
+          ctx.lineTo(1200, 215);
+          ctx.stroke();
+
+          // Bullets Cascade
+          slide.bullets.forEach((bullet, bIdx) => {
+            const bulletDelayFrame = 12 + bIdx * 18;
+            if (frame >= bulletDelayFrame) {
+              const bAlpha = Math.min(1, (frame - bulletDelayFrame) / 12);
+              ctx.globalAlpha = bAlpha;
+
+              ctx.fillStyle = "#38bdf8";
+              ctx.beginPath();
+              ctx.arc(95, 280 + bIdx * 65, 6, 0, Math.PI * 2);
+              ctx.fill();
+
+              ctx.font = "22px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+              ctx.fillStyle = "#cbd5e1";
+              ctx.fillText(bullet, 120, 288 + bIdx * 65);
+              ctx.globalAlpha = 1;
+            }
+          });
+
+          // Speaker Notes at bottom
+          if (slide.speakerNotes) {
+            ctx.fillStyle = "rgba(20, 24, 34, 0.85)";
+            ctx.fillRect(80, 595, 1120, 55);
+            ctx.strokeStyle = "#2e3748";
+            ctx.strokeRect(80, 595, 1120, 55);
+
+            ctx.font = "italic 16px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+            ctx.fillStyle = "#94a3b8";
+            ctx.fillText(`Presenter Note: ${slide.speakerNotes}`, 100, 628);
+          }
+
+          // Progress Bar
+          const overallProgress = (sIdx + progressInSlide) / totalSlides;
+          ctx.fillStyle = "#ea580c";
+          ctx.fillRect(0, 712, 1280 * overallProgress, 8);
+
+          await new Promise((r) => setTimeout(r, 1000 / fps));
+        }
+
+        setVideoProgress(Math.round(((sIdx + 1) / totalSlides) * 100));
+      }
+
+      recorder.stop();
+    } catch (err) {
+      console.error("Video export error:", err);
+      alert("Gagal mengekspor video. Pastikan browser mendukung MediaRecorder API.");
+      setIsExportingVideo(false);
+    }
+  };
+
   // =========================================================================
-  // 3. SLIDES / PRESENTATION ARTIFACT
+  // 3. SLIDES / PRESENTATION ARTIFACT (Enhanced Video & Animation)
   // =========================================================================
   if (artifact.type === "slides" && artifact.slides) {
     const deck = artifact.slides;
@@ -316,61 +483,198 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
 
     return (
       <div className="w-full my-3 bg-[#13151b] border border-[#2b3140] rounded-[3px] p-4 shadow-md text-xs">
-        <div className="flex items-center justify-between pb-3 border-b border-[#232835]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-[3px] bg-[#292215] border border-[#eab308]/50 flex items-center justify-center text-[#eab308]">
+        <div className="flex items-center justify-between pb-3 border-b border-[#232835] gap-2 flex-wrap">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-[3px] bg-[#292215] border border-[#eab308]/50 flex items-center justify-center text-[#eab308] shrink-0">
               <Presentation className="w-4 h-4" />
             </div>
-            <div>
-              <div className="font-semibold text-sm text-[#f3f4f6]">{deck.deckTitle}</div>
-              <div className="text-[11px] text-[#788195]">
-                Slide {currentSlideIndex + 1} dari {deck.slides.length}
+            <div className="min-w-0">
+              <div className="font-semibold text-sm text-[#f3f4f6] truncate font-mono">
+                {deck.deckTitle}
+              </div>
+              <div className="text-[11px] text-[#788195] font-mono flex items-center gap-1.5">
+                <span>Slide {currentSlideIndex + 1} dari {deck.slides.length}</span>
+                <span>•</span>
+                <span className="text-[#38bdf8]">ANIMATED DECK</span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Export to Animated Video Button */}
             <button
-              onClick={() => setCurrentSlideIndex((prev) => Math.max(0, prev - 1))}
-              disabled={currentSlideIndex === 0}
-              className="p-1.5 bg-[#1c202a] hover:bg-[#252b38] disabled:opacity-40 text-[#c0c6d4] rounded-[3px] border border-[#2f3647] transition-colors"
+              type="button"
+              onClick={() => handleExportVideo(deck)}
+              disabled={isExportingVideo}
+              title="Render slide presentasi menjadi video animasi (.webm)"
+              className="px-2.5 py-1 text-xs font-mono bg-[#1c2230] hover:bg-[#252f44] border border-[#38bdf8]/50 text-[#38bdf8] rounded-[3px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
             >
-              <ChevronLeft className="w-4 h-4" />
+              {isExportingVideo ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#38bdf8]" />
+                  <span>Render Video {videoProgress}%...</span>
+                </>
+              ) : (
+                <>
+                  <Film className="w-3.5 h-3.5 text-[#38bdf8]" />
+                  <span>Export Video</span>
+                </>
+              )}
             </button>
-            <span className="font-mono text-xs px-2 text-[#9ca3af]">
-              {currentSlideIndex + 1}/{deck.slides.length}
-            </span>
+
+            {/* Present Fullscreen Mode */}
             <button
-              onClick={() =>
-                setCurrentSlideIndex((prev) => Math.min(deck.slides.length - 1, prev + 1))
-              }
-              disabled={currentSlideIndex === deck.slides.length - 1}
-              className="p-1.5 bg-[#1c202a] hover:bg-[#252b38] disabled:opacity-40 text-[#c0c6d4] rounded-[3px] border border-[#2f3647] transition-colors"
+              type="button"
+              onClick={() => setShowPresentationModal(true)}
+              title="Putar presentasi dalam mode layar penuh / animasi"
+              className="px-2.5 py-1 text-xs font-mono bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] flex items-center gap-1.5 transition-colors cursor-pointer font-medium shadow-xs"
             >
-              <ChevronRight className="w-4 h-4" />
+              <Play className="w-3.5 h-3.5" />
+              <span>Presentasi</span>
             </button>
+
+            <div className="flex items-center gap-1 ml-1 border-l border-[#273042] pl-2">
+              <button
+                onClick={() => setCurrentSlideIndex((prev) => Math.max(0, prev - 1))}
+                disabled={currentSlideIndex === 0}
+                className="p-1 bg-[#1c202a] hover:bg-[#252b38] disabled:opacity-40 text-[#c0c6d4] rounded-[2px] border border-[#2f3647] transition-colors cursor-pointer"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <span className="font-mono text-xs px-1.5 text-[#9ca3af]">
+                {currentSlideIndex + 1}/{deck.slides.length}
+              </span>
+              <button
+                onClick={() =>
+                  setCurrentSlideIndex((prev) => Math.min(deck.slides.length - 1, prev + 1))
+                }
+                disabled={currentSlideIndex === deck.slides.length - 1}
+                className="p-1 bg-[#1c202a] hover:bg-[#252b38] disabled:opacity-40 text-[#c0c6d4] rounded-[2px] border border-[#2f3647] transition-colors cursor-pointer"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Current Slide Display Canvas */}
-        <div className="mt-3 p-5 bg-[#0d0f14] border border-[#232834] rounded-[3px] min-h-[140px] flex flex-col justify-between">
+        <div className="mt-3 p-5 bg-[#0d0f14] border border-[#232834] rounded-[3px] min-h-[160px] flex flex-col justify-between shadow-inner">
           <div>
-            <h3 className="text-base font-bold text-[#f3f4f6] mb-3">
-              {currentSlide.title}
-            </h3>
-            <ul className="space-y-1.5 list-disc list-inside text-xs text-[#cbd5e1] leading-relaxed">
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#1c2230]">
+              <h3 className="text-base font-bold text-[#f3f4f6]">
+                {currentSlide.title}
+              </h3>
+              <span className="text-[10px] font-mono px-2 py-0.5 bg-[#171d28] border border-[#263145] text-[#38bdf8] rounded-[2px]">
+                SLIDE #{currentSlide.slideNumber}
+              </span>
+            </div>
+
+            <ul className="space-y-2 text-xs text-[#cbd5e1] leading-relaxed">
               {currentSlide.bullets.map((b, i) => (
-                <li key={i}>{b}</li>
+                <li key={i} className="flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#ea580c] mt-1.5 shrink-0" />
+                  <span>{b}</span>
+                </li>
               ))}
             </ul>
           </div>
 
           {currentSlide.speakerNotes && (
-            <div className="mt-4 pt-2 border-t border-[#1e232e] text-[11px] text-[#788195] italic">
-              <strong>Catatan Presenter:</strong> {currentSlide.speakerNotes}
+            <div className="mt-4 pt-2.5 border-t border-[#1e232e] text-[11px] text-[#788195] italic font-mono bg-[#11141c] p-2.5 rounded-[2px] border border-[#1e2433]">
+              <strong className="text-[#ea580c] not-italic">Catatan Presenter:</strong> {currentSlide.speakerNotes}
             </div>
           )}
         </div>
+
+        {/* Fullscreen Presentation Modal */}
+        {showPresentationModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 sm:p-8 backdrop-blur-md animate-fadeIn">
+            <div className="w-full max-w-4xl bg-[#0f121a] border border-[#2e374b] rounded-[4px] shadow-2xl flex flex-col overflow-hidden max-h-[90vh]">
+              {/* Modal Top Bar */}
+              <div className="flex items-center justify-between px-5 py-3 bg-[#151924] border-b border-[#252d3f]">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-[1px] bg-[#ea580c]" />
+                  <span className="font-mono text-xs font-bold text-[#f3f4f6] tracking-wider uppercase">
+                    {deck.deckTitle}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono text-[#8a95aa]">
+                    Slide {currentSlideIndex + 1} dari {deck.slides.length}
+                  </span>
+                  <button
+                    onClick={() => setShowPresentationModal(false)}
+                    className="p-1 hover:bg-[#252c3c] text-[#8a95aa] hover:text-white rounded-[2px] transition-colors cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Slide Canvas 16:9 Display */}
+              <div className="flex-1 p-8 sm:p-12 flex flex-col justify-between bg-gradient-to-br from-[#0c0e14] via-[#121622] to-[#0a0c10] min-h-[380px] overflow-y-auto">
+                <div>
+                  <span className="text-xs font-mono text-[#ea580c] uppercase font-bold tracking-widest block mb-2">
+                    SECTION {currentSlideIndex + 1}
+                  </span>
+                  <h1 className="text-2xl sm:text-3xl font-extrabold text-white mb-6 tracking-tight">
+                    {currentSlide.title}
+                  </h1>
+
+                  <ul className="space-y-4 max-w-2xl">
+                    {currentSlide.bullets.map((bullet, idx) => (
+                      <li
+                        key={idx}
+                        className="flex items-start gap-3 text-base text-[#d1d5db] font-sans leading-relaxed"
+                      >
+                        <span className="w-2 h-2 rounded-full bg-[#38bdf8] mt-2 shrink-0" />
+                        <span>{bullet}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {currentSlide.speakerNotes && (
+                  <div className="mt-8 p-3.5 bg-[#141926]/80 border border-[#2b3448] rounded-[3px] text-xs font-mono text-[#94a3b8] italic">
+                    <span className="text-[#ea580c] font-bold not-italic">Speaker Note:</span> {currentSlide.speakerNotes}
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Bottom Navigator */}
+              <div className="flex items-center justify-between px-5 py-3 bg-[#131722] border-t border-[#222a3b]">
+                <button
+                  type="button"
+                  onClick={() => handleExportVideo(deck)}
+                  disabled={isExportingVideo}
+                  className="px-3 py-1.5 text-xs font-mono bg-[#1c2232] hover:bg-[#252d42] border border-[#38bdf8]/50 text-[#38bdf8] rounded-[3px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <Film className="w-3.5 h-3.5" />
+                  <span>{isExportingVideo ? `Rendering Video ${videoProgress}%...` : "Export ke Video MP4/WebM"}</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentSlideIndex((prev) => Math.max(0, prev - 1))}
+                    disabled={currentSlideIndex === 0}
+                    className="px-3 py-1.5 text-xs font-mono bg-[#1c2232] hover:bg-[#273045] disabled:opacity-40 text-white rounded-[3px] border border-[#2e374b] transition-colors cursor-pointer"
+                  >
+                    Sebelumnya
+                  </button>
+                  <button
+                    onClick={() =>
+                      setCurrentSlideIndex((prev) => Math.min(deck.slides.length - 1, prev + 1))
+                    }
+                    disabled={currentSlideIndex === deck.slides.length - 1}
+                    className="px-4 py-1.5 text-xs font-mono bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] transition-colors cursor-pointer font-semibold shadow-xs"
+                  >
+                    Selanjutnya &rarr;
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

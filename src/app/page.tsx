@@ -52,7 +52,7 @@ export default function VoiceAiStudio() {
   // Settings & Panels
   const [settings, setSettings] = useState<VoiceSettings>(DEFAULT_SETTINGS);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("preview");
   const [previewUrl, setPreviewUrl] = useState("/api/preview?projectId=default-workspace");
@@ -65,6 +65,10 @@ export default function VoiceAiStudio() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const activeConvRef = useRef<string | null>(activeConvId);
   const settingsRef = useRef<VoiceSettings>(settings);
+
+  // Audio Mutex & Controller for Double-Voice Prevention & Fast Response
+  const speechSessionIdRef = useRef<number>(0);
+  const ttsAbortControllerRef = useRef<AbortController | null>(null);
 
   // JARVIS VAD (Voice Activity Detection) & State Refs
   const transcriptAccumulatorRef = useRef<string>("");
@@ -171,18 +175,32 @@ export default function VoiceAiStudio() {
 
   // Stop currently playing audio or speech synthesis
   const stopSpeaking = () => {
+    // 1. Invalidate current speech session to prevent race conditions & double-voice
+    speechSessionIdRef.current++;
+
+    // 2. Abort any in-flight /api/tts request
+    if (ttsAbortControllerRef.current) {
+      ttsAbortControllerRef.current.abort();
+      ttsAbortControllerRef.current = null;
+    }
+
+    // 3. Pause & reset current audio element
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
+      currentAudioRef.current.currentTime = 0;
       currentAudioRef.current = null;
     }
+
+    // 4. Cancel browser speech synthesis
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
+
     setIsSpeaking(false);
     isSpeakingRef.current = false;
   };
 
-  // Speak text using Microsoft Edge Neural TTS or Browser Speech
+  // Speak text using Microsoft Edge Neural TTS or Browser Speech (Double-Voice Free & Ultra-Fast)
   const speakText = async (text: string) => {
     stopSpeaking();
     if (!text || !text.trim()) return;
@@ -191,59 +209,89 @@ export default function VoiceAiStudio() {
     const cleanSpeech = text
       .replace(/```[\s\S]*?```/g, "Kode program telah siap ditampilkan.")
       .replace(/https?:\/\/\S+/g, "tautan")
+      .replace(/[*#_~`]/g, "")
       .trim();
 
     if (!cleanSpeech) return;
+
+    // Allocate session ID for this utterance
+    const currentSessionId = ++speechSessionIdRef.current;
+
+    // LATENCY OPTIMIZATION: For fast verbal response, take first 1-2 core sentences
+    // if the response is lengthy, so the audio starts playing in <300ms!
+    const sentences = cleanSpeech.split(/(?<=[.!?])\s+/);
+    const spokenText =
+      sentences.length > 1 && cleanSpeech.length > 150
+        ? (sentences[0] + " " + (sentences[1] || "")).slice(0, 180).trim()
+        : cleanSpeech.slice(0, 250).trim();
 
     // 1. Try Microsoft Edge Neural TTS First
     if (settingsRef.current.ttsProvider === "neural") {
       try {
         setIsSpeaking(true);
         isSpeakingRef.current = true;
+
+        const controller = new AbortController();
+        ttsAbortControllerRef.current = controller;
+
         const res = await fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
-            text: cleanSpeech,
+            text: spokenText,
             voice: settingsRef.current.neuralVoice || "id-ID-GadisNeural",
-            rate: settingsRef.current.rate || 1.0,
+            rate: settingsRef.current.rate || 1.05,
             pitch: settingsRef.current.pitch || 1.0,
           }),
         });
 
+        // Ensure session hasn't been interrupted while fetching
+        if (speechSessionIdRef.current !== currentSessionId) return;
+
         if (res.ok) {
           const blob = await res.blob();
+          if (speechSessionIdRef.current !== currentSessionId) return;
+
           const audioUrl = URL.createObjectURL(blob);
           const audio = new Audio(audioUrl);
           currentAudioRef.current = audio;
 
           audio.onended = () => {
-            setIsSpeaking(false);
-            isSpeakingRef.current = false;
-            currentAudioRef.current = null;
-            URL.revokeObjectURL(audioUrl);
+            if (speechSessionIdRef.current === currentSessionId) {
+              setIsSpeaking(false);
+              isSpeakingRef.current = false;
+              currentAudioRef.current = null;
+              URL.revokeObjectURL(audioUrl);
 
-            // JARVIS Continuous Loop: auto resume listening if hands-free is enabled
-            if (jarvisModeRef.current && !isProcessingRef.current) {
-              setTimeout(() => {
-                playJarvisSound("listen");
-                startListening();
-              }, 400);
+              // JARVIS Continuous Loop: auto resume listening if hands-free is enabled
+              if (jarvisModeRef.current && !isProcessingRef.current) {
+                setTimeout(() => {
+                  playJarvisSound("listen");
+                  startListening();
+                }, 350);
+              }
             }
           };
 
           audio.onerror = () => {
-            setIsSpeaking(false);
-            isSpeakingRef.current = false;
-            currentAudioRef.current = null;
-            URL.revokeObjectURL(audioUrl);
+            if (speechSessionIdRef.current === currentSessionId) {
+              setIsSpeaking(false);
+              isSpeakingRef.current = false;
+              currentAudioRef.current = null;
+              URL.revokeObjectURL(audioUrl);
+            }
           };
 
           await audio.play();
           return;
         }
-      } catch (err) {
-        console.warn("Neural TTS request failed, falling back to browser synthesis:", err);
+      } catch (err: any) {
+        if (err.name !== "AbortError") {
+          console.warn("Neural TTS request failed, falling back to browser synthesis:", err);
+        } else {
+          return; // Intentionally aborted
+        }
       }
     }
 
@@ -254,10 +302,12 @@ export default function VoiceAiStudio() {
       return;
     }
 
-    const utterance = new SpeechSynthesisUtterance(cleanSpeech);
+    if (speechSessionIdRef.current !== currentSessionId) return;
+
+    const utterance = new SpeechSynthesisUtterance(spokenText);
     utterance.lang = settingsRef.current.language;
-    utterance.rate = settingsRef.current.rate;
-    utterance.pitch = settingsRef.current.pitch;
+    utterance.rate = settingsRef.current.rate || 1.0;
+    utterance.pitch = settingsRef.current.pitch || 1.0;
 
     if (settingsRef.current.voiceURI) {
       const matched = availableVoices.find(
@@ -267,24 +317,30 @@ export default function VoiceAiStudio() {
     }
 
     utterance.onstart = () => {
-      setIsSpeaking(true);
-      isSpeakingRef.current = true;
+      if (speechSessionIdRef.current === currentSessionId) {
+        setIsSpeaking(true);
+        isSpeakingRef.current = true;
+      }
     };
     utterance.onend = () => {
-      setIsSpeaking(false);
-      isSpeakingRef.current = false;
+      if (speechSessionIdRef.current === currentSessionId) {
+        setIsSpeaking(false);
+        isSpeakingRef.current = false;
 
-      // JARVIS Continuous Loop: auto resume listening
-      if (jarvisModeRef.current && !isProcessingRef.current) {
-        setTimeout(() => {
-          playJarvisSound("listen");
-          startListening();
-        }, 400);
+        // JARVIS Continuous Loop: auto resume listening
+        if (jarvisModeRef.current && !isProcessingRef.current) {
+          setTimeout(() => {
+            playJarvisSound("listen");
+            startListening();
+          }, 350);
+        }
       }
     };
     utterance.onerror = () => {
-      setIsSpeaking(false);
-      isSpeakingRef.current = false;
+      if (speechSessionIdRef.current === currentSessionId) {
+        setIsSpeaking(false);
+        isSpeakingRef.current = false;
+      }
     };
 
     window.speechSynthesis.speak(utterance);
@@ -641,9 +697,13 @@ export default function VoiceAiStudio() {
         <header className="h-14 border-b border-[#232834] bg-[#111319]/90 backdrop-blur-md px-4 flex items-center justify-between shrink-0 z-10">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setIsSidebarOpen(true)}
-              className="p-2 text-[#9ca3af] hover:text-[#f3f4f6] hover:bg-[#1f2430] rounded-[3px] border border-[#2b3140] transition-colors"
-              title="Daftar Sesi"
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className={`p-2 rounded-[3px] border transition-colors cursor-pointer ${
+                isSidebarOpen
+                  ? "bg-[#25211e] border-[#ea580c]/60 text-[#f97316]"
+                  : "bg-[#1a1d26] hover:bg-[#1f2430] text-[#9ca3af] hover:text-[#f3f4f6] border-[#2b3140]"
+              }`}
+              title={isSidebarOpen ? "Sembunyikan Sidebar Sesi" : "Tampilkan Sidebar Sesi"}
             >
               <Menu className="w-4 h-4" />
             </button>
@@ -758,8 +818,8 @@ export default function VoiceAiStudio() {
           </div>
         </header>
 
-        {/* Central Workspace (Chat Area) */}
-        <div className="flex-1 flex flex-col p-3 sm:p-5 overflow-hidden gap-3 max-w-4xl w-full mx-auto">
+        {/* Central Workspace (Chat Area - Responsive Fluid Grid) */}
+        <div className="flex-1 flex flex-col p-2.5 sm:p-4 md:p-5 overflow-hidden gap-2.5 sm:gap-3 w-full max-w-5xl 2xl:max-w-6xl mx-auto min-w-0 transition-all">
           {/* Top Audio Waveform Monitor */}
           <VoiceVisualizer
             isListening={isListening}

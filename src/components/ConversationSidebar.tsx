@@ -1,8 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Conversation } from "@/lib/types";
-import { Plus, MessageSquare, Trash2, Radio } from "lucide-react";
+import { Plus, MessageSquare, Trash2, Radio, X, PanelLeftClose } from "lucide-react";
 
 interface ConversationSidebarProps {
   conversations: Conversation[];
@@ -27,46 +27,128 @@ export function ConversationSidebar({
 }: ConversationSidebarProps) {
   const handleClose = onClose || onCloseMobile;
 
+  // Resizable sidebar width on desktop
+  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const [isResizing, setIsResizing] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Check window size on mount
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+
+    try {
+      const savedWidth = localStorage.getItem("vox_sidebar_width");
+      if (savedWidth) {
+        const num = parseInt(savedWidth, 10);
+        if (num >= 180 && num <= 450) setSidebarWidth(num);
+      }
+    } catch {}
+
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  // Dragging mouse handler for sidebar resize
+  const handleMouseDownResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      const newWidth = e.clientX;
+      const maxWidth = Math.min(480, Math.floor(window.innerWidth * 0.4));
+      if (newWidth >= 180 && newWidth <= maxWidth) {
+        setSidebarWidth(newWidth);
+        try {
+          localStorage.setItem("vox_sidebar_width", newWidth.toString());
+        } catch {}
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    if (isResizing) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    } else {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [isResizing]);
+
+  if (!isOpen && !isMobile) {
+    return null;
+  }
+
   return (
     <>
       {/* Mobile backdrop */}
-      {isOpen && (
+      {isOpen && isMobile && (
         <div
           onClick={handleClose}
-          className="fixed inset-0 z-30 bg-black/60 md:hidden backdrop-blur-xs"
+          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-xs md:hidden animate-fadeIn"
         />
       )}
 
       <aside
-        className={`fixed md:static inset-y-0 left-0 z-40 w-72 bg-[#121418] border-r border-[#242934] flex flex-col transition-transform duration-200 ease-in-out ${
-          isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        style={!isMobile && isOpen ? { width: `${sidebarWidth}px` } : undefined}
+        className={`fixed md:relative inset-y-0 left-0 z-50 md:z-20 bg-[#111318] border-r border-[#242935] flex flex-col shrink-0 shadow-2xl md:shadow-none select-text transition-all ${
+          isMobile
+            ? `w-72 sm:w-80 max-w-[85vw] transition-transform duration-200 ease-in-out ${
+                isOpen ? "translate-x-0" : "-translate-x-full"
+              }`
+            : "h-full"
         }`}
       >
-        {/* Brand Header */}
-        <div className="p-4 border-b border-[#242934] flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-[3px] bg-[#221c18] border border-[#ea580c]/40 flex items-center justify-center text-[#f97316]">
-              <Radio className="w-4 h-4 animate-pulse" />
+        {/* Brand Header & Close button */}
+        <div className="p-3.5 border-b border-[#242934] flex items-center justify-between bg-[#13161d]">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-7 h-7 rounded-[3px] bg-[#221c18] border border-[#ea580c]/40 flex items-center justify-center text-[#f97316] shrink-0">
+              <Radio className="w-3.5 h-3.5 animate-pulse" />
             </div>
-            <div>
-              <div className="text-sm font-semibold tracking-wide text-[#f3f4f6]">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold tracking-wide text-[#f3f4f6] truncate font-mono">
                 VOX·AI STUDIO
               </div>
-              <div className="text-[10px] font-mono text-[#788195] tracking-widest">
+              <div className="text-[9px] font-mono text-[#788195] tracking-widest truncate">
                 ACOUSTIC AGENT V1
               </div>
             </div>
           </div>
+
+          <button
+            onClick={handleClose}
+            title="Sembunyikan Sidebar"
+            className="p-1.5 text-[#8892a4] hover:text-[#f3f4f6] hover:bg-[#202533] rounded-[3px] transition-colors cursor-pointer shrink-0"
+          >
+            {isMobile ? <X className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+          </button>
         </div>
 
         {/* New Session Button */}
         <div className="p-3">
           <button
             onClick={onNew}
-            className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-[#1e232c] hover:bg-[#282f3c] text-[#f3f4f6] text-xs font-mono tracking-wider border border-[#333b4d] rounded-[3px] transition-colors shadow-xs"
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-[#1e232c] hover:bg-[#282f3c] text-[#f3f4f6] text-xs font-mono tracking-wider border border-[#333b4d] rounded-[3px] transition-colors shadow-xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5 text-[#ea580c]" />
-            SESI BARU
+            <span>SESI BARU</span>
           </button>
         </div>
 
@@ -88,7 +170,7 @@ export function ConversationSidebar({
                   key={conv.id}
                   onClick={() => {
                     onSelect(conv.id);
-                    if (handleClose) handleClose();
+                    if (isMobile && handleClose) handleClose();
                   }}
                   className={`group relative flex items-center justify-between p-2.5 text-xs rounded-[3px] cursor-pointer border transition-colors ${
                     isActive
@@ -109,7 +191,7 @@ export function ConversationSidebar({
                   <button
                     onClick={(e) => onDelete(conv.id, e)}
                     title="Hapus sesi"
-                    className="opacity-0 group-hover:opacity-100 p-1 text-[#6e778a] hover:text-[#ef4444] hover:bg-[#282020] rounded-[3px] transition-opacity"
+                    className="opacity-0 group-hover:opacity-100 p-1 text-[#6e778a] hover:text-[#ef4444] hover:bg-[#282020] rounded-[3px] transition-opacity cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -120,12 +202,23 @@ export function ConversationSidebar({
         </div>
 
         {/* Footer info badge */}
-        <div className="p-3 border-t border-[#242934] bg-[#0e1014] text-[11px] font-mono text-[#626a7c] flex justify-between items-center">
+        <div className="p-3 border-t border-[#242934] bg-[#0e1014] text-[11px] font-mono text-[#626a7c] flex justify-between items-center shrink-0">
           <span>LATENCY: &lt;180ms</span>
           <span className="flex items-center gap-1.5 text-[#10b981]">
             <span className="w-1.5 h-1.5 rounded-[2px] bg-[#10b981]" /> READY
           </span>
         </div>
+
+        {/* Draggable Divider Handle (Right Border on desktop) */}
+        {!isMobile && (
+          <div
+            onMouseDown={handleMouseDownResize}
+            title="Geser untuk menyesuaikan lebar sidebar"
+            className="absolute top-0 bottom-0 -right-1.5 w-3 cursor-col-resize z-50 group hover:bg-[#ea580c]/30 flex items-center justify-center transition-colors"
+          >
+            <div className="w-0.5 h-10 rounded-[1px] bg-[#3b4458] group-hover:bg-[#ea580c] transition-colors" />
+          </div>
+        )}
       </aside>
     </>
   );

@@ -73,18 +73,33 @@ export function RightWorkspacePanel({
   initialUrl = "http://localhost:3000",
   onUrlChange,
 }: RightWorkspacePanelProps) {
-  // --- 1. Resizing state ---
+  // --- 1. Resizing & Responsiveness state ---
   const [panelWidth, setPanelWidth] = useState(520);
   const [isResizing, setIsResizing] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (!mobile) {
+        // Clamp panel width so central chat is never smaller than 320px
+        const maxAllowed = Math.max(320, window.innerWidth - 320);
+        setPanelWidth((prev) => Math.min(prev, maxAllowed));
+      }
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+
     try {
       const savedWidth = localStorage.getItem("vox_workspace_width");
       if (savedWidth) {
         const num = parseInt(savedWidth, 10);
-        if (num >= 340 && num <= 900) setPanelWidth(num);
+        if (num >= 320 && num <= 1000) setPanelWidth(num);
       }
     } catch {}
+
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   const handleMouseDownResize = (e: React.MouseEvent) => {
@@ -96,7 +111,8 @@ export function RightWorkspacePanel({
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
       const newWidth = window.innerWidth - e.clientX;
-      if (newWidth >= 340 && newWidth <= window.innerWidth * 0.75) {
+      const maxAllowed = Math.max(320, window.innerWidth - 320);
+      if (newWidth >= 320 && newWidth <= maxAllowed) {
         setPanelWidth(newWidth);
         try {
           localStorage.setItem("vox_workspace_width", newWidth.toString());
@@ -660,17 +676,23 @@ export function RightWorkspacePanel({
 
   return (
     <div
-      style={{ width: `${panelWidth}px` }}
-      className="relative flex flex-col h-full bg-[#101217] border-l border-[#242936] shadow-2xl shrink-0 z-20 select-text overflow-hidden transition-all duration-75"
+      style={!isMobile ? { width: `${panelWidth}px`, maxWidth: "calc(100vw - 320px)" } : undefined}
+      className={`bg-[#101217] border-l border-[#242936] shadow-2xl z-30 select-text overflow-hidden transition-all duration-75 flex flex-col ${
+        isMobile
+          ? "fixed inset-0 w-full h-full"
+          : "relative h-full shrink-0"
+      }`}
     >
-      {/* Draggable Divider Handle (Left Border) */}
-      <div
-        onMouseDown={handleMouseDownResize}
-        title="Geser ke kiri/kanan untuk menyesuaikan lebar panel"
-        className="absolute top-0 bottom-0 -left-1.5 w-3 cursor-col-resize z-50 group hover:bg-[#ea580c]/30 flex items-center justify-center transition-colors"
-      >
-        <div className="w-0.5 h-10 rounded-[1px] bg-[#3b4458] group-hover:bg-[#ea580c] transition-colors" />
-      </div>
+      {/* Draggable Divider Handle (Left Border on Desktop) */}
+      {!isMobile && (
+        <div
+          onMouseDown={handleMouseDownResize}
+          title="Geser ke kiri/kanan untuk menyesuaikan lebar panel"
+          className="absolute top-0 bottom-0 -left-1.5 w-3 cursor-col-resize z-50 group hover:bg-[#ea580c]/30 flex items-center justify-center transition-colors"
+        >
+          <div className="w-0.5 h-10 rounded-[1px] bg-[#3b4458] group-hover:bg-[#ea580c] transition-colors" />
+        </div>
+      )}
 
       {/* Top Tab Bar */}
       <div className="h-11 bg-[#141720] border-b border-[#232835] px-2 flex items-center justify-between shrink-0">
