@@ -27,23 +27,27 @@ interface AudioControlsProps {
 }
 
 const QUICK_PROMPTS_ID = [
+  "🌐 Tampilkan website preview",
+  "📁 Buka folder project",
+  "🚀 Auto deploy ke Vercel",
   "📸 Upload gambar & jadikan kode UI",
-  "📁 Buat folder src/components/ui",
+  "💻 Buka terminal dan cek git status",
   "📄 Buatkan invoice penagihan resmi klien",
   "📊 Buatkan spreadsheet arus kas bulanan",
   "📑 Buatkan slide presentasi pitch deck",
   "⚡ Kerjakan task coding & refactor 4 file",
-  "💻 Buka terminal dan cek git status",
 ];
 
 const QUICK_PROMPTS_EN = [
+  "🌐 Show live website preview",
+  "📁 Open project files explorer",
+  "🚀 Auto deploy to Vercel",
   "📸 Upload image & convert to UI code",
-  "📁 Create folder src/components/ui",
+  "💻 Open terminal and check git status",
   "📄 Create an official client invoice",
   "📊 Create monthly cashflow spreadsheet",
   "📑 Generate interactive pitch deck",
   "⚡ Execute coding task & refactor 4 files",
-  "💻 Open terminal and check git status",
 ];
 
 export function AudioControls({

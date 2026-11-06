@@ -7,9 +7,7 @@ import { AudioControls } from "@/components/AudioControls";
 import { ConversationSidebar } from "@/components/ConversationSidebar";
 import { MessageItem } from "@/components/MessageItem";
 import { SettingsModal, NEURAL_VOICES } from "@/components/SettingsModal";
-import { TerminalDrawer } from "@/components/TerminalDrawer";
-import { GitHubVercelModal } from "@/components/GitHubVercelModal";
-import { ProjectExplorerModal } from "@/components/ProjectExplorerModal";
+import { RightWorkspacePanel, WorkspaceTab } from "@/components/RightWorkspacePanel";
 import {
   Menu,
   Settings as SettingsIcon,
@@ -18,6 +16,8 @@ import {
   Terminal,
   GitBranch,
   HardDrive,
+  Globe,
+  PanelRight,
 } from "lucide-react";
 
 const DEFAULT_SETTINGS: VoiceSettings = {
@@ -44,13 +44,13 @@ export default function VoiceAiStudio() {
   const [liveTranscript, setLiveTranscript] = useState("");
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
 
-  // Settings & Modals
+  // Settings & Panels
   const [settings, setSettings] = useState<VoiceSettings>(DEFAULT_SETTINGS);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
-  const [isGitModalOpen, setIsGitModalOpen] = useState(false);
-  const [isExplorerOpen, setIsExplorerOpen] = useState(false);
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("preview");
+  const [previewUrl, setPreviewUrl] = useState("http://localhost:3000");
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   // Refs for Speech Recognition & Audio
@@ -170,7 +170,7 @@ export default function VoiceAiStudio() {
     // Filter out code blocks and data URLs from speech
     const cleanSpeech = text
       .replace(/```[\s\S]*?```/g, "Kode program telah siap ditampilkan.")
-      .replace(/https?:\/\/\S+/g, "tautan tautan")
+      .replace(/https?:\/\/\S+/g, "tautan")
       .trim();
 
     if (!cleanSpeech) return;
@@ -250,32 +250,35 @@ export default function VoiceAiStudio() {
     setLiveTranscript("");
 
     const cleanQuery = text.toLowerCase();
-    if (
-      cleanQuery.includes("buka terminal") ||
-      cleanQuery.includes("open terminal") ||
-      cleanQuery.includes("cek terminal")
-    ) {
-      setIsTerminalOpen(true);
-    }
-    if (
+
+    // Voice / text command panel switches
+    if (cleanQuery.includes("terminal") || cleanQuery.includes("buka terminal") || cleanQuery.includes("cek terminal")) {
+      setIsRightPanelOpen(true);
+      setWorkspaceTab("terminal");
+    } else if (
       cleanQuery.includes("buka explorer") ||
-      cleanQuery.includes("lihat folder") ||
-      cleanQuery.includes("file explorer") ||
-      cleanQuery.includes("folder project")
+      cleanQuery.includes("folder") ||
+      cleanQuery.includes("lihat file") ||
+      cleanQuery.includes("file explorer")
     ) {
-      setIsExplorerOpen(true);
-    }
-    if (
+      setIsRightPanelOpen(true);
+      setWorkspaceTab("explorer");
+    } else if (
+      cleanQuery.includes("website") ||
+      cleanQuery.includes("preview") ||
+      cleanQuery.includes("tampilkan web") ||
+      cleanQuery.includes("lihat website")
+    ) {
+      setIsRightPanelOpen(true);
+      setWorkspaceTab("preview");
+    } else if (
       cleanQuery.includes("deploy") ||
       cleanQuery.includes("vercel") ||
       cleanQuery.includes("github") ||
-      cleanQuery.includes("git status")
+      cleanQuery.includes("auto deploy")
     ) {
-      if (cleanQuery.includes("terminal")) {
-        setIsTerminalOpen(true);
-      } else {
-        setIsGitModalOpen(true);
-      }
+      setIsRightPanelOpen(true);
+      setWorkspaceTab("deploy");
     }
 
     const targetConvId = activeConvId || "conv-default";
@@ -313,6 +316,12 @@ export default function VoiceAiStudio() {
           data.userMessage,
           data.assistantMessage,
         ]);
+
+        // If folder created, switch to explorer tab
+        if (data.createdFolder) {
+          setIsRightPanelOpen(true);
+          setWorkspaceTab("explorer");
+        }
 
         // Auto speak if enabled
         if (settingsRef.current.autoSpeak) {
@@ -467,8 +476,8 @@ export default function VoiceAiStudio() {
         onDelete={handleDeleteConversation}
       />
 
-      {/* Main Studio Console */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden bg-radial from-[#151821] via-[#0d0f13] to-[#090b0e]">
+      {/* Main Studio Console (Center Column) */}
+      <main className="flex-1 flex flex-col h-full overflow-hidden bg-radial from-[#151821] via-[#0d0f13] to-[#090b0e] min-w-0">
         {/* Top Header Bar */}
         <header className="h-14 border-b border-[#232834] bg-[#111319]/90 backdrop-blur-md px-4 flex items-center justify-between shrink-0 z-10">
           <div className="flex items-center gap-3">
@@ -488,56 +497,75 @@ export default function VoiceAiStudio() {
             </div>
           </div>
 
-          {/* Quick Tools & Settings Action Bar */}
+          {/* Quick Tools & Right Panel Toggles */}
           <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* Project File Explorer Button */}
+            {/* Website Preview Tab Trigger */}
             <button
-              onClick={() => setIsExplorerOpen(true)}
+              onClick={() => {
+                setIsRightPanelOpen(true);
+                setWorkspaceTab("preview");
+              }}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono rounded-[3px] border transition-colors ${
-                isExplorerOpen
-                  ? "bg-[#18261e] border-[#10b981] text-[#34d399]"
+                isRightPanelOpen && workspaceTab === "preview"
+                  ? "bg-[#182635] border-[#38bdf8] text-[#38bdf8]"
                   : "bg-[#1a1d26] hover:bg-[#252b38] text-[#c4cad6] hover:text-[#f3f4f6] border-[#2d3444]"
               }`}
-              title="Buka Project File Explorer"
+              title="Tampilkan Website Preview di panel kanan"
             >
-              <HardDrive className="w-3.5 h-3.5 text-[#10b981]" />
+              <Globe className="w-3.5 h-3.5 text-[#38bdf8]" />
+              <span className="hidden md:inline">PREVIEW</span>
+            </button>
+
+            {/* Project File Explorer Button */}
+            <button
+              onClick={() => {
+                setIsRightPanelOpen(true);
+                setWorkspaceTab("explorer");
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono rounded-[3px] border transition-colors ${
+                isRightPanelOpen && workspaceTab === "explorer"
+                  ? "bg-[#252016] border-[#fbbf24] text-[#fbbf24]"
+                  : "bg-[#1a1d26] hover:bg-[#252b38] text-[#c4cad6] hover:text-[#f3f4f6] border-[#2d3444]"
+              }`}
+              title="Buka Folder Project di panel kanan"
+            >
+              <HardDrive className="w-3.5 h-3.5 text-[#fbbf24]" />
               <span className="hidden md:inline">EXPLORER</span>
             </button>
 
             {/* Developer Terminal Button */}
             <button
-              onClick={() => setIsTerminalOpen(!isTerminalOpen)}
+              onClick={() => {
+                setIsRightPanelOpen(true);
+                setWorkspaceTab("terminal");
+              }}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono rounded-[3px] border transition-colors ${
-                isTerminalOpen
-                  ? "bg-[#291b15] border-[#ea580c] text-[#f97316]"
+                isRightPanelOpen && workspaceTab === "terminal"
+                  ? "bg-[#1b251d] border-[#10b981] text-[#34d399]"
                   : "bg-[#1a1d26] hover:bg-[#252b38] text-[#c4cad6] hover:text-[#f3f4f6] border-[#2d3444]"
               }`}
-              title="Buka Terminal Project"
+              title="Buka Terminal di panel kanan"
             >
-              <Terminal className="w-3.5 h-3.5 text-[#ea580c]" />
+              <Terminal className="w-3.5 h-3.5 text-[#10b981]" />
               <span className="hidden md:inline">TERMINAL</span>
             </button>
 
-            {/* GitHub & Vercel Connect */}
+            {/* Auto Deploy (GitHub & Vercel) */}
             <button
-              onClick={() => setIsGitModalOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono bg-[#1a1d26] hover:bg-[#252b38] text-[#c4cad6] hover:text-[#f3f4f6] border border-[#2d3444] rounded-[3px] transition-colors"
-              title="Koneksi GitHub & Vercel"
+              onClick={() => {
+                setIsRightPanelOpen(true);
+                setWorkspaceTab("deploy");
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono rounded-[3px] border transition-colors ${
+                isRightPanelOpen && workspaceTab === "deploy"
+                  ? "bg-[#291b15] border-[#ea580c] text-[#f97316]"
+                  : "bg-[#1a1d26] hover:bg-[#252b38] text-[#c4cad6] hover:text-[#f3f4f6] border-[#2d3444]"
+              }`}
+              title="Auto Sync GitHub & Vercel Deploy"
             >
-              <GitBranch className="w-3.5 h-3.5 text-[#38bdf8]" />
-              <span className="hidden md:inline">GIT &amp; VERCEL</span>
+              <Zap className="w-3.5 h-3.5 text-[#ea580c]" />
+              <span className="hidden md:inline">AUTO DEPLOY</span>
             </button>
-
-            <div className="hidden lg:flex items-center gap-2 text-xs font-mono text-[#8c94a5] bg-[#171a22] px-2.5 py-1 border border-[#2b3140] rounded-[3px]">
-              <Zap className="w-3.5 h-3.5 text-[#f97316]" />
-              <span>
-                {settings.apiKey.startsWith("aigw_")
-                  ? "AI GATEWAY"
-                  : settings.apiKey.startsWith("AIza")
-                  ? "GEMINI 2.5"
-                  : "LOCAL VOICE"}
-              </span>
-            </div>
 
             <button
               onClick={() => setIsSettingsOpen(true)}
@@ -547,11 +575,24 @@ export default function VoiceAiStudio() {
               <SettingsIcon className="w-3.5 h-3.5 text-[#ea580c]" />
               <span className="hidden sm:inline">PENGATURAN</span>
             </button>
+
+            {/* Toggle Panel Right Visibility */}
+            <button
+              onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
+              className={`p-2 rounded-[3px] border transition-colors ${
+                isRightPanelOpen
+                  ? "bg-[#25211e] border-[#ea580c]/60 text-[#f97316]"
+                  : "bg-[#1a1d26] hover:bg-[#252b38] text-[#8e98aa] border-[#2d3444]"
+              }`}
+              title={isRightPanelOpen ? "Sembunyikan Panel Workspace" : "Tampilkan Panel Workspace"}
+            >
+              <PanelRight className="w-4 h-4" />
+            </button>
           </div>
         </header>
 
-        {/* Central Workspace */}
-        <div className="flex-1 flex flex-col p-3 sm:p-5 overflow-hidden gap-3 max-w-5xl w-full mx-auto">
+        {/* Central Workspace (Chat Area) */}
+        <div className="flex-1 flex flex-col p-3 sm:p-5 overflow-hidden gap-3 max-w-4xl w-full mx-auto">
           {/* Top Audio Waveform Monitor */}
           <VoiceVisualizer
             isListening={isListening}
@@ -569,7 +610,7 @@ export default function VoiceAiStudio() {
                   Konsol Suara Siap Digunakan
                 </p>
                 <p className="text-xs text-[#707a8e] mt-1 max-w-sm">
-                  Tekan tombol &quot;TEKAN &amp; BICARA&quot; di bawah untuk berbicara dengan asisten AI, upload gambar untuk jadikan kode, atau buat folder project secara otomatis.
+                  Tekan tombol &quot;TEKAN &amp; BICARA&quot; di bawah untuk berbicara, upload gambar untuk jadikan kode, atau kelola folder &amp; live preview di panel kanan yang bisa digeser.
                 </p>
               </div>
             ) : (
@@ -596,10 +637,26 @@ export default function VoiceAiStudio() {
             onSendMessage={handleSendMessage}
             onStopSpeaking={stopSpeaking}
             language={settings.language}
-            onOpenExplorer={() => setIsExplorerOpen(true)}
+            onOpenExplorer={() => {
+              setIsRightPanelOpen(true);
+              setWorkspaceTab("explorer");
+            }}
           />
         </div>
       </main>
+
+      {/* Resizable Right Workspace Panel: Website Preview, Explorer, Terminal, Auto Deploy */}
+      <RightWorkspacePanel
+        isOpen={isRightPanelOpen}
+        onClose={() => setIsRightPanelOpen(false)}
+        activeTab={workspaceTab}
+        onTabChange={setWorkspaceTab}
+        onTriggerVoiceFeedback={(msg) => {
+          if (settings.autoSpeak) speakText(msg);
+        }}
+        initialUrl={previewUrl}
+        onUrlChange={setPreviewUrl}
+      />
 
       {/* Settings Modal */}
       <SettingsModal
@@ -608,33 +665,6 @@ export default function VoiceAiStudio() {
         settings={settings}
         onSave={handleSaveSettings}
         availableVoices={availableVoices}
-      />
-
-      {/* Developer Terminal Drawer */}
-      <TerminalDrawer
-        isOpen={isTerminalOpen}
-        onClose={() => setIsTerminalOpen(false)}
-        onTriggerVoiceFeedback={(msg) => {
-          if (settings.autoSpeak) speakText(msg);
-        }}
-      />
-
-      {/* GitHub & Vercel Connector Modal */}
-      <GitHubVercelModal
-        isOpen={isGitModalOpen}
-        onClose={() => setIsGitModalOpen(false)}
-        onVoiceFeedback={(msg) => {
-          if (settings.autoSpeak) speakText(msg);
-        }}
-      />
-
-      {/* Project File & Folder Explorer Modal */}
-      <ProjectExplorerModal
-        isOpen={isExplorerOpen}
-        onClose={() => setIsExplorerOpen(false)}
-        onNotifyVoice={(msg) => {
-          if (settings.autoSpeak) speakText(msg);
-        }}
       />
     </div>
   );
