@@ -4,6 +4,16 @@ import { generateAIResponse } from "@/lib/gemini";
 import fs from "fs/promises";
 import path from "path";
 
+const USER_PROJECTS_BASE = path.join(process.cwd(), ".data", "user_projects");
+
+function sanitizeSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 export async function POST(req: Request) {
   try {
     const {
@@ -14,6 +24,7 @@ export async function POST(req: Request) {
       systemPrompt,
       imageUri,
       imageDataUri,
+      activeProjectId = "default-workspace",
     } = await req.json();
 
     if (!message || typeof message !== "string" || !message.trim()) {
@@ -23,21 +34,45 @@ export async function POST(req: Request) {
     const convId = conversationId || "conv-default";
     const trimmedMessage = message.trim();
 
-    // 1. Check for real-time folder creation command in project:
-    // e.g. "buat folder [nama]" or "bikin folder [nama]" or "create folder [nama]"
+    // 1. Check for real-time project or folder creation in user's isolated workspace sandbox
     let createdFolderInfo: string | null = null;
+
+    // A. Check for "buat project [nama]"
+    const projectMatch = trimmedMessage.match(/(?:buat|bikin|create)\s+project\s+([a-zA-Z0-9_\-\s]+)/i);
+    if (projectMatch && projectMatch[1]) {
+      const projName = projectMatch[1].trim();
+      const slug = sanitizeSlug(projName);
+      try {
+        const targetProjDir = path.join(USER_PROJECTS_BASE, slug);
+        await fs.mkdir(targetProjDir, { recursive: true });
+        await fs.mkdir(path.join(targetProjDir, "assets"), { recursive: true });
+        await fs.mkdir(path.join(targetProjDir, "documents"), { recursive: true });
+        await fs.writeFile(
+          path.join(targetProjDir, "README.md"),
+          `# ${projName}\nProject workspace khusus di akun Anda.\n`,
+          "utf-8"
+        );
+        createdFolderInfo = `Project Baru: ${projName}`;
+      } catch (err) {
+        console.error("User project creation error:", err);
+      }
+    }
+
+    // B. Check for "buat folder [nama]" inside user's active project
     const folderMatch = trimmedMessage.match(/(?:buat|bikin|create)\s+folder\s+([a-zA-Z0-9_\-\/\.]+)/i);
-    if (folderMatch && folderMatch[1]) {
+    if (!createdFolderInfo && folderMatch && folderMatch[1]) {
       const rawFolderName = folderMatch[1].trim();
       try {
-        const root = process.cwd();
-        const safeTarget = path.normalize(path.join(root, rawFolderName));
-        if (safeTarget.startsWith(root)) {
+        const safeProj = sanitizeSlug(activeProjectId) || "default-workspace";
+        const projRoot = path.normalize(path.join(USER_PROJECTS_BASE, safeProj));
+        const safeTarget = path.normalize(path.join(projRoot, rawFolderName));
+
+        if (safeTarget.startsWith(projRoot)) {
           await fs.mkdir(safeTarget, { recursive: true });
-          createdFolderInfo = rawFolderName;
+          createdFolderInfo = `${rawFolderName} (di project ${safeProj})`;
         }
       } catch (err) {
-        console.error("Folder creation error:", err);
+        console.error("Folder creation error in user project:", err);
       }
     }
 
@@ -52,7 +87,7 @@ export async function POST(req: Request) {
     const conv = await getConversation(convId);
     const history = conv?.messages.map((m) => ({ role: m.role, content: m.content })) || [];
 
-    // 4. Generate AI response (incorporating multimodal image & folder intent)
+    // 4. Generate AI response
     const { reply, artifact } = await generateAIResponse({
       prompt: trimmedMessage,
       history,

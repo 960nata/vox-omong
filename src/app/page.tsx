@@ -56,6 +56,7 @@ export default function VoiceAiStudio() {
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("preview");
   const [previewUrl, setPreviewUrl] = useState("http://localhost:3000");
+  const [activeProjectId, setActiveProjectId] = useState("default-workspace");
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   // Refs for Speech Recognition & Audio
@@ -393,6 +394,7 @@ export default function VoiceAiStudio() {
           systemPrompt: settingsRef.current.systemPrompt,
           imageUri: imageUri,
           imageDataUri: dataUri,
+          activeProjectId,
         }),
       });
 

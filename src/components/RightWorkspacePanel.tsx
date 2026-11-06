@@ -153,12 +153,18 @@ export function RightWorkspacePanel({
   };
 
   // --- 3. Project Explorer Tab State ---
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([
+    { id: "default-workspace", name: "DEFAULT WORKSPACE" },
+  ]);
+  const [activeProjectId, setActiveProjectId] = useState<string>("default-workspace");
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+
   const [tree, setTree] = useState<FileNode[]>([]);
   const [treeLoading, setTreeLoading] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
-    src: true,
-    "src/components": true,
-    "src/app": true,
+    assets: true,
+    documents: true,
   });
   const [selectedParent, setSelectedParent] = useState("");
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
@@ -167,13 +173,16 @@ export function RightWorkspacePanel({
   const [newFileName, setNewFileName] = useState("");
   const [explorerMsg, setExplorerMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
-  const fetchTree = async () => {
+  const fetchTree = async (pId?: string) => {
     setTreeLoading(true);
+    const targetProject = pId || activeProjectId || "default-workspace";
     try {
-      const res = await fetch("/api/fs");
+      const res = await fetch(`/api/fs?projectId=${encodeURIComponent(targetProject)}`);
       const data = await res.json();
       if (data.success) {
         setTree(data.tree || []);
+        if (data.projects) setProjects(data.projects);
+        if (data.activeProject) setActiveProjectId(data.activeProject);
       }
     } catch (e) {
       console.warn("Failed to fetch tree:", e);
@@ -192,6 +201,39 @@ export function RightWorkspacePanel({
     setExpandedFolders((prev) => ({ ...prev, [path]: !prev[path] }));
   };
 
+  const handleCreateProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProjectName.trim()) return;
+    try {
+      const res = await fetch("/api/fs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create_project",
+          projectName: newProjectName.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setExplorerMsg({ text: `Project "${newProjectName.trim()}" berhasil dibuat di akun Anda!`, ok: true });
+        setNewProjectName("");
+        setIsCreatingProject(false);
+        if (data.projectId) {
+          setActiveProjectId(data.projectId);
+          fetchTree(data.projectId);
+        }
+        if (onTriggerVoiceFeedback) {
+          onTriggerVoiceFeedback(`Project ${newProjectName.trim()} berhasil dibuat di akun Anda.`);
+        }
+      } else {
+        setExplorerMsg({ text: data.error || "Gagal membuat project", ok: false });
+      }
+    } catch (err: any) {
+      setExplorerMsg({ text: err.message, ok: false });
+    }
+    setTimeout(() => setExplorerMsg(null), 3500);
+  };
+
   const handleCreateFolder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFolderName.trim()) return;
@@ -200,7 +242,11 @@ export function RightWorkspacePanel({
       const res = await fetch("/api/fs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create_folder", folderPath: fullPath }),
+        body: JSON.stringify({
+          action: "create_folder",
+          projectId: activeProjectId,
+          folderPath: fullPath,
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -228,8 +274,9 @@ export function RightWorkspacePanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "create_file",
+          projectId: activeProjectId,
           filePath: fullPath,
-          content: "// Auto-created via VOX·AI Studio\n",
+          content: "// Auto-created in user project workspace\n",
         }),
       });
       const data = await res.json();
@@ -249,12 +296,16 @@ export function RightWorkspacePanel({
   };
 
   const handleDeleteItem = async (relPath: string) => {
-    if (!confirm(`Hapus "${relPath}" secara permanen?`)) return;
+    if (!confirm(`Hapus "${relPath}" secara permanen dari project ini?`)) return;
     try {
       const res = await fetch("/api/fs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete", folderPath: relPath }),
+        body: JSON.stringify({
+          action: "delete",
+          projectId: activeProjectId,
+          folderPath: relPath,
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -761,6 +812,66 @@ export function RightWorkspacePanel({
         {/* ================= TAB 2: PROJECT EXPLORER ================= */}
         {activeTab === "explorer" && (
           <div className="flex-1 flex flex-col overflow-hidden bg-[#101217]">
+            {/* Project Workspace Selector Bar */}
+            <div className="p-2.5 bg-[#151922] border-b border-[#242b3a] flex items-center justify-between text-xs font-mono">
+              <div className="flex items-center gap-2 overflow-hidden flex-1 mr-2">
+                <span className="text-[#848fa5] text-[10px] shrink-0 uppercase font-semibold">PROJECT AKUN:</span>
+                <select
+                  value={activeProjectId}
+                  onChange={(e) => {
+                    const newId = e.target.value;
+                    setActiveProjectId(newId);
+                    fetchTree(newId);
+                  }}
+                  className="bg-[#0f1118] border border-[#2b3447] text-[#f3f4f6] text-xs font-mono rounded-[3px] px-2 py-1 outline-hidden focus:border-[#ea580c] truncate max-w-[200px]"
+                >
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsCreatingProject(!isCreatingProject)}
+                className="px-2.5 py-1 bg-[#ea580c] hover:bg-[#f97316] text-white text-[11px] font-mono rounded-[3px] shrink-0 flex items-center gap-1 transition-colors"
+                title="Buat Project Baru Khusus di Akun Anda"
+              >
+                <FolderPlus className="w-3.5 h-3.5" />
+                <span>+ Project Baru</span>
+              </button>
+            </div>
+
+            {/* Create Project Inline Form */}
+            {isCreatingProject && (
+              <form
+                onSubmit={handleCreateProject}
+                className="p-2.5 bg-[#1a1f2b] border-b border-[#2d364a] flex items-center gap-2 text-xs font-mono animate-fadeIn"
+              >
+                <span className="text-[#ea580c] font-semibold text-xs shrink-0">Nama Project:</span>
+                <input
+                  type="text"
+                  autoFocus
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  placeholder="Contoh: Kasir Cafe / Landing Page / Toko Online"
+                  className="flex-1 bg-[#101218] border border-[#374258] rounded-[3px] px-2.5 py-1 text-white outline-hidden focus:border-[#ea580c]"
+                />
+                <button type="submit" className="px-3 py-1 bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px]">
+                  Buat Project
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingProject(false)}
+                  className="px-2 py-1 bg-[#232835] text-[#9ca3af] rounded-[3px]"
+                >
+                  Batal
+                </button>
+              </form>
+            )}
+
             {/* Explorer Toolbar */}
             <div className="p-2.5 bg-[#141720] border-b border-[#232835] flex items-center justify-between text-xs font-mono">
               <div className="flex items-center gap-2">
@@ -786,14 +897,19 @@ export function RightWorkspacePanel({
                 </button>
               </div>
 
-              <button
-                onClick={fetchTree}
-                disabled={treeLoading}
-                title="Refresh File Tree"
-                className="p-1 text-[#8b95a8] hover:text-[#f3f4f6]"
-              >
-                <RotateCw className={`w-3.5 h-3.5 ${treeLoading ? "animate-spin text-[#ea580c]" : ""}`} />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-[#6b768c] font-mono hidden sm:inline">
+                  /{activeProjectId}
+                </span>
+                <button
+                  onClick={() => fetchTree()}
+                  disabled={treeLoading}
+                  title="Refresh File Tree"
+                  className="p-1 text-[#8b95a8] hover:text-[#f3f4f6]"
+                >
+                  <RotateCw className={`w-3.5 h-3.5 ${treeLoading ? "animate-spin text-[#ea580c]" : ""}`} />
+                </button>
+              </div>
             </div>
 
             {/* Feedback Message */}
