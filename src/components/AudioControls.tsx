@@ -27,6 +27,7 @@ interface AudioControlsProps {
 }
 
 const QUICK_PROMPTS_ID = [
+  "🤖 Coworker: Gerakkan kursor & demo studio",
   "🌐 Tampilkan website preview",
   "📁 Buka folder project",
   "🚀 Auto deploy ke Vercel",
@@ -39,6 +40,7 @@ const QUICK_PROMPTS_ID = [
 ];
 
 const QUICK_PROMPTS_EN = [
+  "🤖 Coworker: Move cursor & demo studio",
   "🌐 Show live website preview",
   "📁 Open project files explorer",
   "🚀 Auto deploy to Vercel",

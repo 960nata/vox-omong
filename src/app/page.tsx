@@ -8,6 +8,7 @@ import { ConversationSidebar } from "@/components/ConversationSidebar";
 import { MessageItem } from "@/components/MessageItem";
 import { SettingsModal, NEURAL_VOICES } from "@/components/SettingsModal";
 import { RightWorkspacePanel, WorkspaceTab } from "@/components/RightWorkspacePanel";
+import { CoworkerCursorOperator } from "@/components/CoworkerCursorOperator";
 import {
   Menu,
   Settings as SettingsIcon,
@@ -279,6 +280,19 @@ export default function VoiceAiStudio() {
     ) {
       setIsRightPanelOpen(true);
       setWorkspaceTab("deploy");
+    }
+
+    if (
+      cleanQuery.includes("coworker") ||
+      cleanQuery.includes("kursor") ||
+      cleanQuery.includes("cursor") ||
+      cleanQuery.includes("kendali kursor") ||
+      cleanQuery.includes("demo otomatis") ||
+      cleanQuery.includes("tour otomatis")
+    ) {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("vox_trigger_coworker"));
+      }
     }
 
     const targetConvId = activeConvId || "conv-default";
@@ -656,6 +670,13 @@ export default function VoiceAiStudio() {
         }}
         initialUrl={previewUrl}
         onUrlChange={setPreviewUrl}
+      />
+
+      {/* Autonomous Coworker Cursor Operator */}
+      <CoworkerCursorOperator
+        onSpeak={speakText}
+        onSwitchTab={setWorkspaceTab}
+        onOpenRightPanel={() => setIsRightPanelOpen(true)}
       />
 
       {/* Settings Modal */}
