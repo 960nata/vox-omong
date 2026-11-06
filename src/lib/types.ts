@@ -55,9 +55,27 @@ export interface WebPreviewData {
   title?: string;
 }
 
+export interface SwarmComponentItem {
+  id: string;
+  name: string;
+  role: string;
+  status: "completed" | "in_progress" | "pending";
+  description: string;
+  linesOfCode: number;
+}
+
+export interface SwarmPipelineData {
+  projectName: string;
+  targetPage: string;
+  totalComponents: number;
+  completedComponents: number;
+  components: SwarmComponentItem[];
+  previewUrl: string;
+}
+
 export interface ArtifactItem {
   id: string;
-  type: "code_diff" | "pdf_document" | "invoice" | "spreadsheet" | "slides" | "web_preview" | "file_bundle";
+  type: "code_diff" | "pdf_document" | "invoice" | "spreadsheet" | "slides" | "web_preview" | "file_bundle" | "swarm_build";
   title: string;
   summary?: string;
   files?: ArtifactFile[];
@@ -70,6 +88,7 @@ export interface ArtifactItem {
   spreadsheet?: SpreadsheetData;
   slides?: SlideDeckData;
   webPreview?: WebPreviewData;
+  swarmPipeline?: SwarmPipelineData;
   downloadUrl?: string;
   status: "completed" | "in_progress" | "review";
 }

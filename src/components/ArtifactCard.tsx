@@ -26,6 +26,10 @@ import {
   Loader2,
   Maximize2,
   X,
+  Layers,
+  Bot,
+  CheckCircle2,
+  ExternalLink,
 } from "lucide-react";
 
 interface ArtifactCardProps {
@@ -317,6 +321,92 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // SWARM BUILD / MULTI-AGENT COMPONENT PIPELINE ARTIFACT
+  // =========================================================================
+  if (artifact.type === "swarm_build" && artifact.swarmPipeline) {
+    const pipeline = artifact.swarmPipeline;
+
+    return (
+      <div className="w-full my-3 bg-[#111319] border border-[#2b3345] rounded-[3px] p-4 shadow-xl text-xs space-y-3.5">
+        {/* Header */}
+        <div className="flex items-center justify-between pb-3 border-b border-[#212736] flex-wrap gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-[3px] bg-[#1a2233] border border-[#38bdf8]/50 flex items-center justify-center text-[#38bdf8]">
+              <Layers className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-bold text-sm text-white font-mono flex items-center gap-2">
+                <span>SWARM BUILD PIPELINE</span>
+                <span className="text-[10px] px-2 py-0.5 bg-[#12261a] text-[#10b981] border border-[#166534] rounded-[2px]">
+                  ASSEMBLED
+                </span>
+              </div>
+              <div className="text-[11px] text-[#788295] font-mono">
+                Project: <span className="text-[#38bdf8] font-bold">{pipeline.projectName}</span> · Target: <span className="text-[#ea580c] font-bold">{pipeline.targetPage}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <a
+              href={pipeline.previewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] flex items-center gap-1.5 font-mono text-xs font-semibold transition-colors shadow-xs"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Buka Preview Halaman</span>
+            </a>
+          </div>
+        </div>
+
+        {/* Progress Metrics Bar */}
+        <div className="p-2.5 bg-[#161a24] border border-[#262f42] rounded-[3px] flex items-center justify-between text-xs font-mono">
+          <div className="flex items-center gap-2">
+            <Bot className="w-4 h-4 text-[#38bdf8]" />
+            <span className="text-[#cbd5e1]">
+              Swarm Workers: <strong className="text-white">{pipeline.completedComponents}/{pipeline.totalComponents} Items Selesai</strong>
+            </span>
+          </div>
+          <span className="text-[#10b981] font-bold">100% COMPLETE</span>
+        </div>
+
+        {/* Component Items List */}
+        <div className="space-y-1.5">
+          <div className="text-[10px] font-mono uppercase tracking-wider text-[#697488] px-1">
+            Komponen Yang Dikerjakan Swarm:
+          </div>
+          {pipeline.components.map((comp, idx) => (
+            <div
+              key={idx}
+              className="p-2.5 bg-[#141720] border border-[#212838] hover:border-[#38bdf8]/50 rounded-[3px] flex items-center justify-between gap-3 transition-colors"
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <CheckCircle2 className="w-4 h-4 text-[#10b981] shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-white font-mono truncate">
+                    {comp.name}
+                  </div>
+                  <div className="text-[11px] text-[#717d94] font-sans truncate">
+                    {comp.description}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 font-mono text-[11px]">
+                <span className="text-[#38bdf8] bg-[#162234] border border-[#25364e] px-1.5 py-0.5 rounded-[2px] text-[10px]">
+                  {comp.role}
+                </span>
+                <span className="text-[#22c55e]">+{comp.linesOfCode} lines</span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );

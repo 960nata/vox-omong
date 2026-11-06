@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { addMessage, getConversation } from "@/lib/storage";
 import { generateAIResponse } from "@/lib/gemini";
+import { executeSwarmBuild } from "@/lib/swarmUiAgent";
 import fs from "fs/promises";
 import path from "path";
 
@@ -87,20 +88,48 @@ export async function POST(req: Request) {
     const conv = await getConversation(convId);
     const history = conv?.messages.map((m) => ({ role: m.role, content: m.content })) || [];
 
-    // 4. Generate AI response
-    const { reply, artifact } = await generateAIResponse({
-      prompt: trimmedMessage,
-      history,
-      apiKey,
-      language: language === "en-US" ? "en-US" : "id-ID",
-      systemPrompt,
-      imageUri: imageUri || undefined,
-      imageDataUri: imageDataUri || undefined,
-      createdFolderInfo: createdFolderInfo || undefined,
-    });
+    // 4. Check if request is a Swarm UI Build task (item-by-item full page generation)
+    const lowerMsg = trimmedMessage.toLowerCase();
+    const isSwarmRequest =
+      lowerMsg.includes("swarm") ||
+      lowerMsg.includes("bikin web") ||
+      lowerMsg.includes("buat website") ||
+      lowerMsg.includes("buatkan website") ||
+      lowerMsg.includes("landing page") ||
+      lowerMsg.includes("buat dashboard") ||
+      lowerMsg.includes("bikin dashboard") ||
+      lowerMsg.includes("halaman full") ||
+      lowerMsg.includes("per komponen") ||
+      lowerMsg.includes("item per item");
 
-    // Auto-update user project preview index.html if a UI component or web preview artifact was generated
+    let reply: string;
+    let artifact: any = undefined;
     let updatedPreviewUrl: string | null = null;
+
+    if (isSwarmRequest) {
+      const swarmResult = await executeSwarmBuild({
+        prompt: trimmedMessage,
+        projectId: activeProjectId,
+      });
+      reply = swarmResult.reply;
+      artifact = swarmResult.artifact;
+      updatedPreviewUrl = swarmResult.previewUrl;
+    } else {
+      const aiRes = await generateAIResponse({
+        prompt: trimmedMessage,
+        history,
+        apiKey,
+        language: language === "en-US" ? "en-US" : "id-ID",
+        systemPrompt,
+        imageUri: imageUri || undefined,
+        imageDataUri: imageDataUri || undefined,
+        createdFolderInfo: createdFolderInfo || undefined,
+      });
+      reply = aiRes.reply;
+      artifact = aiRes.artifact;
+    }
+
+    // Auto-update user project preview index.html if a UI component, web preview, or swarm build was generated
     if (artifact && (artifact.type === "code_diff" || artifact.type === "web_preview")) {
       try {
         const safeProj = sanitizeSlug(activeProjectId) || "default-workspace";

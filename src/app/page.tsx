@@ -9,6 +9,7 @@ import { MessageItem } from "@/components/MessageItem";
 import { SettingsModal, NEURAL_VOICES } from "@/components/SettingsModal";
 import { RightWorkspacePanel, WorkspaceTab } from "@/components/RightWorkspacePanel";
 import { CoworkerCursorOperator } from "@/components/CoworkerCursorOperator";
+import { AcousticBackground } from "@/components/AcousticBackground";
 import { playJarvisSound } from "@/lib/jarvisSounds";
 import {
   Menu,
@@ -676,7 +677,10 @@ export default function VoiceAiStudio() {
   };
 
   return (
-    <div className="flex h-screen w-screen bg-[#0d0f13] text-[#f3f4f6] font-sans overflow-hidden antialiased">
+    <div className="relative flex h-screen w-screen bg-[#07080c] text-[#f3f4f6] font-sans overflow-hidden antialiased">
+      {/* Live Interactive Acoustic Background Animation */}
+      <AcousticBackground isListening={isListening} isSpeaking={isSpeaking} />
+
       {/* Sidebar: Conversation history */}
       <ConversationSidebar
         isOpen={isSidebarOpen}
@@ -692,7 +696,7 @@ export default function VoiceAiStudio() {
       />
 
       {/* Main Studio Console (Center Column) */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden bg-radial from-[#151821] via-[#0d0f13] to-[#090b0e] min-w-0">
+      <main className="flex-1 flex flex-col h-full overflow-hidden bg-radial from-[#151821]/85 via-[#0d0f13]/90 to-[#08090d]/95 min-w-0 z-10">
         {/* Top Header Bar */}
         <header className="h-14 border-b border-[#232834] bg-[#111319]/90 backdrop-blur-md px-4 flex items-center justify-between shrink-0 z-10">
           <div className="flex items-center gap-3">

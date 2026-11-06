@@ -33,6 +33,8 @@ interface AudioControlsProps {
 }
 
 const CLAUDE_SKILLS_ID = [
+  { label: "🏗️ Swarm UI: Landing Page", prompt: "Gunakan Swarm Build Agent untuk membuat Landing Page lengkap item-per-item komponen sampai jadi full di index.html" },
+  { label: "📊 Swarm UI: Dashboard", prompt: "Gunakan Swarm Build Agent untuk membuat Dashboard Analytics lengkap per komponen sampai jadi full di index.html" },
   { label: "📑 PPT & Video Animasi", prompt: "Buatkan slide presentasi pitch deck profesional dan siapkan mode export ke video animasi" },
   { label: "📄 Invoice Resmi (PDF)", prompt: "Buatkan invoice penagihan resmi klien dengan rincian biaya, pajak 11%, dan format cetak PDF" },
   { label: "📊 Spreadsheet Finansial", prompt: "Buatkan spreadsheet laporan arus kas bulanan dalam tabel terstruktur dan unduh CSV" },
@@ -43,6 +45,8 @@ const CLAUDE_SKILLS_ID = [
 ];
 
 const CLAUDE_SKILLS_EN = [
+  { label: "🏗️ Swarm UI: Landing Page", prompt: "Use Swarm Build Agent to craft a complete Landing Page item-by-item until fully assembled in index.html" },
+  { label: "📊 Swarm UI: Dashboard", prompt: "Use Swarm Build Agent to craft a complete Analytics Dashboard item-by-item until fully assembled in index.html" },
   { label: "📑 PPT & Video Animation", prompt: "Generate interactive pitch deck presentation slides with animated video export capability" },
   { label: "📄 Official Invoice (PDF)", prompt: "Create an official client invoice with itemized charges, 11% tax, and PDF print export" },
   { label: "📊 Financial Spreadsheet", prompt: "Create a monthly cashflow financial spreadsheet with CSV export" },
