@@ -55,7 +55,7 @@ export default function VoiceAiStudio() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("preview");
-  const [previewUrl, setPreviewUrl] = useState("http://localhost:3000");
+  const [previewUrl, setPreviewUrl] = useState("/api/preview?projectId=default-workspace");
   const [activeProjectId, setActiveProjectId] = useState("default-workspace");
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
 
@@ -410,6 +410,13 @@ export default function VoiceAiStudio() {
         if (data.createdFolder) {
           setIsRightPanelOpen(true);
           setWorkspaceTab("explorer");
+        }
+
+        // If preview URL updated with generated component/page, reload preview tab
+        if (data.previewUrl) {
+          setPreviewUrl(data.previewUrl);
+          setIsRightPanelOpen(true);
+          setWorkspaceTab("preview");
         }
 
         // Auto speak if enabled

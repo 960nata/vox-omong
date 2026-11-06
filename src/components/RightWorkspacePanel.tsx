@@ -126,33 +126,7 @@ export function RightWorkspacePanel({
     };
   }, [isResizing]);
 
-  // --- 2. Preview Tab State ---
-  const [previewUrl, setPreviewUrl] = useState(initialUrl);
-  const [inputUrl, setInputUrl] = useState(initialUrl);
-  const [viewportMode, setViewportMode] = useState<"desktop" | "tablet" | "mobile">("desktop");
-  const [iframeKey, setIframeKey] = useState(0);
-
-  useEffect(() => {
-    if (initialUrl && initialUrl !== previewUrl) {
-      setPreviewUrl(initialUrl);
-      setInputUrl(initialUrl);
-    }
-  }, [initialUrl]);
-
-  const handleApplyUrl = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    let target = inputUrl.trim();
-    if (!target) return;
-    if (!target.startsWith("http://") && !target.startsWith("https://")) {
-      target = `http://${target}`;
-    }
-    setPreviewUrl(target);
-    setInputUrl(target);
-    if (onUrlChange) onUrlChange(target);
-    setIframeKey((k) => k + 1);
-  };
-
-  // --- 3. Project Explorer Tab State ---
+  // --- Projects State ---
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([
     { id: "default-workspace", name: "DEFAULT WORKSPACE" },
   ]);
@@ -160,6 +134,52 @@ export function RightWorkspacePanel({
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
 
+  // --- 2. Preview Tab State ---
+  const defaultInitial =
+    initialUrl && initialUrl !== "http://localhost:3000" && initialUrl !== "http://localhost:3000/"
+      ? initialUrl
+      : "/api/preview?projectId=default-workspace";
+
+  const [previewUrl, setPreviewUrl] = useState(defaultInitial);
+  const [inputUrl, setInputUrl] = useState(defaultInitial);
+  const [viewportMode, setViewportMode] = useState<"desktop" | "tablet" | "mobile">("desktop");
+  const [iframeKey, setIframeKey] = useState(0);
+
+  useEffect(() => {
+    if (initialUrl && initialUrl !== previewUrl) {
+      const clean =
+        initialUrl === "http://localhost:3000" || initialUrl === "http://localhost:3000/"
+          ? `/api/preview?projectId=${activeProjectId}`
+          : initialUrl;
+      setPreviewUrl(clean);
+      setInputUrl(clean);
+    }
+  }, [initialUrl, activeProjectId]);
+
+  const handleApplyUrl = (e?: React.FormEvent, customTarget?: string) => {
+    if (e) e.preventDefault();
+    let target = (customTarget !== undefined ? customTarget : inputUrl).trim();
+    if (!target) return;
+
+    // Prevent recursive Droste loop
+    if (
+      target === "http://localhost:3000" ||
+      target === "http://localhost:3000/" ||
+      target === "localhost:3000" ||
+      target === "/"
+    ) {
+      target = `/api/preview?projectId=${activeProjectId}`;
+    } else if (!target.startsWith("http://") && !target.startsWith("https://") && !target.startsWith("/")) {
+      target = `https://${target}`;
+    }
+
+    setPreviewUrl(target);
+    setInputUrl(target);
+    if (onUrlChange) onUrlChange(target);
+    setIframeKey((k) => k + 1);
+  };
+
+  // --- 3. Project Explorer Tab State ---
   const [tree, setTree] = useState<FileNode[]>([]);
   const [treeLoading, setTreeLoading] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
@@ -196,6 +216,17 @@ export function RightWorkspacePanel({
       fetchTree();
     }
   }, [isOpen, activeTab]);
+
+  // Sync preview when activeProjectId changes
+  useEffect(() => {
+    if (previewUrl.startsWith("/api/preview")) {
+      const nextUrl = `/api/preview?projectId=${activeProjectId}`;
+      setPreviewUrl(nextUrl);
+      setInputUrl(nextUrl);
+      if (onUrlChange) onUrlChange(nextUrl);
+      setIframeKey((k) => k + 1);
+    }
+  }, [activeProjectId]);
 
   const toggleFolder = (path: string) => {
     setExpandedFolders((prev) => ({ ...prev, [path]: !prev[path] }));
@@ -729,7 +760,7 @@ export function RightWorkspacePanel({
                   type="text"
                   value={inputUrl}
                   onChange={(e) => setInputUrl(e.target.value)}
-                  placeholder="http://localhost:3000 atau https://..."
+                  placeholder="/api/preview?projectId=... atau https://..."
                   className="w-full bg-[#0d0f14] border border-[#2b3345] focus:border-[#ea580c] text-[#e2e8f0] text-xs font-mono rounded-[3px] px-2.5 py-1.5 pr-7 outline-hidden transition-colors"
                 />
                 <button
@@ -783,6 +814,35 @@ export function RightWorkspacePanel({
               </a>
             </div>
 
+            {/* Sub-bar: Project preview presets */}
+            <div className="px-3 py-1.5 bg-[#10131b] border-b border-[#212736] flex items-center justify-between text-[11px] font-mono text-[#8a95a8]">
+              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+                <span className="text-[#ea580c] text-[10px] uppercase font-semibold">PREVIEW:</span>
+                <button
+                  type="button"
+                  onClick={() => handleApplyUrl(undefined, `/api/preview?projectId=${activeProjectId}`)}
+                  className={`px-2 py-0.5 rounded-[2px] border transition-colors ${
+                    previewUrl.includes(`/api/preview?projectId=${activeProjectId}`)
+                      ? "bg-[#1f2838] border-[#38bdf8] text-[#38bdf8]"
+                      : "bg-[#151922] border-[#293245] text-[#9ca3af] hover:text-[#f3f4f6]"
+                  }`}
+                >
+                  📄 Project index.html
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyUrl(undefined, `/api/preview?projectId=${activeProjectId}&t=${Date.now()}`)}
+                  className="px-2 py-0.5 rounded-[2px] bg-[#151922] hover:bg-[#1e2433] border border-[#293245] text-[#9ca3af] hover:text-[#f3f4f6] transition-colors"
+                >
+                  ⚡ Live Refresh
+                </button>
+              </div>
+
+              <div className="text-[10px] text-[#626d82] hidden sm:inline">
+                Workspace: <span className="text-[#38bdf8] font-bold">{activeProjectId}</span>
+              </div>
+            </div>
+
             {/* Iframe Container */}
             <div className="flex-1 flex items-center justify-center p-2 bg-[#0a0c10] overflow-auto">
               <div
@@ -795,7 +855,7 @@ export function RightWorkspacePanel({
                       : "100%",
                   height: "100%",
                 }}
-                className="bg-white rounded-[3px] shadow-2xl overflow-hidden border border-[#2b3345] transition-all"
+                className="bg-[#0b0d13] rounded-[3px] shadow-2xl overflow-hidden border border-[#2b3345] transition-all"
               >
                 <iframe
                   key={iframeKey}
