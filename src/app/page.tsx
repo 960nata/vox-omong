@@ -677,153 +677,166 @@ export default function VoiceAiStudio() {
   };
 
   return (
-    <div className="relative flex h-screen w-screen bg-[#07080c] text-[#f3f4f6] font-sans overflow-hidden antialiased">
+    <div className="relative flex flex-col h-screen w-screen bg-[#07080c] text-[#f3f4f6] font-sans overflow-hidden antialiased">
       {/* Live Interactive Acoustic Background Animation */}
       <AcousticBackground isListening={isListening} isSpeaking={isSpeaking} />
 
-      {/* Sidebar: Conversation history */}
-      <ConversationSidebar
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-        conversations={conversations}
-        activeId={activeConvId}
-        onSelect={(id) => {
-          setActiveConvId(id);
-          setIsSidebarOpen(false);
-        }}
-        onNew={handleNewConversation}
-        onDelete={handleDeleteConversation}
-      />
+      {/* Global Top Header Bar (Full width across the entire app - Never split by preview!) */}
+      <header className="h-14 w-full border-b border-[#232834] bg-[#0c0e14]/90 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between shrink-0 z-30">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className={`p-2 rounded-[3px] border transition-colors cursor-pointer ${
+              isSidebarOpen
+                ? "bg-[#25211e] border-[#ea580c]/60 text-[#f97316]"
+                : "bg-[#161922] hover:bg-[#1f2430] text-[#9ca3af] hover:text-[#f3f4f6] border-[#293040]"
+            }`}
+            title={isSidebarOpen ? "Sembunyikan Sidebar Sesi" : "Tampilkan Sidebar Sesi"}
+          >
+            <Menu className="w-4 h-4" />
+          </button>
 
-      {/* Main Studio Console (Center Column) */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden bg-radial from-[#151821]/85 via-[#0d0f13]/90 to-[#08090d]/95 min-w-0 z-10">
-        {/* Top Header Bar */}
-        <header className="h-14 border-b border-[#232834] bg-[#111319]/90 backdrop-blur-md px-4 flex items-center justify-between shrink-0 z-10">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className={`p-2 rounded-[3px] border transition-colors cursor-pointer ${
-                isSidebarOpen
-                  ? "bg-[#25211e] border-[#ea580c]/60 text-[#f97316]"
-                  : "bg-[#1a1d26] hover:bg-[#1f2430] text-[#9ca3af] hover:text-[#f3f4f6] border-[#2b3140]"
-              }`}
-              title={isSidebarOpen ? "Sembunyikan Sidebar Sesi" : "Tampilkan Sidebar Sesi"}
-            >
-              <Menu className="w-4 h-4" />
-            </button>
-
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-[1px] bg-[#ea580c] ring-2 ring-[#ea580c]/30 animate-pulse" />
-              <h1 className="text-sm font-semibold tracking-wider font-mono text-[#f3f4f6]">
-                VOX·AI <span className="text-[#ea580c] text-xs font-normal">STUDIO</span>
-              </h1>
-            </div>
-
-            {/* JARVIS Mode Badge */}
-            {jarvisMode && (
-              <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 bg-[#142338] border border-[#38bdf8]/60 rounded-[3px] text-[10px] font-mono text-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.2)]">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#38bdf8] animate-ping" />
-                <span>JARVIS PROTOCOL ACTIVE</span>
-              </div>
-            )}
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-[1px] bg-[#ea580c] ring-2 ring-[#ea580c]/30 animate-pulse" />
+            <h1 className="text-sm font-semibold tracking-wider font-mono text-[#f3f4f6]">
+              VOX·AI <span className="text-[#ea580c] text-xs font-normal">STUDIO</span>
+            </h1>
           </div>
 
-          {/* Quick Tools & Right Panel Toggles */}
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* Website Preview Tab Trigger */}
-            <button
-              onClick={() => {
+          {/* JARVIS Mode Badge */}
+          {jarvisMode && (
+            <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 bg-[#142338] border border-[#38bdf8]/60 rounded-[3px] text-[10px] font-mono text-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.2)]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#38bdf8] animate-ping" />
+              <span>JARVIS ACTIVE</span>
+            </div>
+          )}
+        </div>
+
+        {/* Quick Tools & Right Panel Toggles — ICON ONLY */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Website Preview Icon Button */}
+          <button
+            onClick={() => {
+              if (isRightPanelOpen && workspaceTab === "preview") {
+                setIsRightPanelOpen(false);
+              } else {
                 setIsRightPanelOpen(true);
                 setWorkspaceTab("preview");
-              }}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono rounded-[3px] border transition-colors ${
-                isRightPanelOpen && workspaceTab === "preview"
-                  ? "bg-[#182635] border-[#38bdf8] text-[#38bdf8]"
-                  : "bg-[#1a1d26] hover:bg-[#252b38] text-[#c4cad6] hover:text-[#f3f4f6] border-[#2d3444]"
-              }`}
-              title="Tampilkan Website Preview di panel kanan"
-            >
-              <Globe className="w-3.5 h-3.5 text-[#38bdf8]" />
-              <span className="hidden md:inline">PREVIEW</span>
-            </button>
+              }
+            }}
+            className={`p-2 rounded-[3px] border transition-colors cursor-pointer ${
+              isRightPanelOpen && workspaceTab === "preview"
+                ? "bg-[#182635] border-[#38bdf8] text-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.25)]"
+                : "bg-[#161922] hover:bg-[#202532] text-[#8e98aa] hover:text-[#f3f4f6] border-[#293040]"
+            }`}
+            title="Website Preview"
+          >
+            <Globe className="w-4 h-4 text-[#38bdf8]" />
+          </button>
 
-            {/* Project File Explorer Button */}
-            <button
-              onClick={() => {
+          {/* Project File Explorer Icon Button */}
+          <button
+            onClick={() => {
+              if (isRightPanelOpen && workspaceTab === "explorer") {
+                setIsRightPanelOpen(false);
+              } else {
                 setIsRightPanelOpen(true);
                 setWorkspaceTab("explorer");
-              }}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono rounded-[3px] border transition-colors ${
-                isRightPanelOpen && workspaceTab === "explorer"
-                  ? "bg-[#252016] border-[#fbbf24] text-[#fbbf24]"
-                  : "bg-[#1a1d26] hover:bg-[#252b38] text-[#c4cad6] hover:text-[#f3f4f6] border-[#2d3444]"
-              }`}
-              title="Buka Folder Project di panel kanan"
-            >
-              <HardDrive className="w-3.5 h-3.5 text-[#fbbf24]" />
-              <span className="hidden md:inline">EXPLORER</span>
-            </button>
+              }
+            }}
+            className={`p-2 rounded-[3px] border transition-colors cursor-pointer ${
+              isRightPanelOpen && workspaceTab === "explorer"
+                ? "bg-[#252016] border-[#fbbf24] text-[#fbbf24] shadow-[0_0_8px_rgba(251,191,36,0.25)]"
+                : "bg-[#161922] hover:bg-[#202532] text-[#8e98aa] hover:text-[#f3f4f6] border-[#293040]"
+            }`}
+            title="Folder Project Explorer"
+          >
+            <HardDrive className="w-4 h-4 text-[#fbbf24]" />
+          </button>
 
-            {/* Developer Terminal Button */}
-            <button
-              onClick={() => {
+          {/* Developer Terminal Icon Button */}
+          <button
+            onClick={() => {
+              if (isRightPanelOpen && workspaceTab === "terminal") {
+                setIsRightPanelOpen(false);
+              } else {
                 setIsRightPanelOpen(true);
                 setWorkspaceTab("terminal");
-              }}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono rounded-[3px] border transition-colors ${
-                isRightPanelOpen && workspaceTab === "terminal"
-                  ? "bg-[#1b251d] border-[#10b981] text-[#34d399]"
-                  : "bg-[#1a1d26] hover:bg-[#252b38] text-[#c4cad6] hover:text-[#f3f4f6] border-[#2d3444]"
-              }`}
-              title="Buka Terminal di panel kanan"
-            >
-              <Terminal className="w-3.5 h-3.5 text-[#10b981]" />
-              <span className="hidden md:inline">TERMINAL</span>
-            </button>
+              }
+            }}
+            className={`p-2 rounded-[3px] border transition-colors cursor-pointer ${
+              isRightPanelOpen && workspaceTab === "terminal"
+                ? "bg-[#14231b] border-[#10b981] text-[#34d399] shadow-[0_0_8px_rgba(16,185,129,0.25)]"
+                : "bg-[#161922] hover:bg-[#202532] text-[#8e98aa] hover:text-[#f3f4f6] border-[#293040]"
+            }`}
+            title="Developer Terminal"
+          >
+            <Terminal className="w-4 h-4 text-[#10b981]" />
+          </button>
 
-            {/* Auto Deploy (GitHub & Vercel) */}
-            <button
-              onClick={() => {
+          {/* Auto Deploy (GitHub & Vercel) Icon Button */}
+          <button
+            onClick={() => {
+              if (isRightPanelOpen && workspaceTab === "deploy") {
+                setIsRightPanelOpen(false);
+              } else {
                 setIsRightPanelOpen(true);
                 setWorkspaceTab("deploy");
-              }}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono rounded-[3px] border transition-colors ${
-                isRightPanelOpen && workspaceTab === "deploy"
-                  ? "bg-[#291b15] border-[#ea580c] text-[#f97316]"
-                  : "bg-[#1a1d26] hover:bg-[#252b38] text-[#c4cad6] hover:text-[#f3f4f6] border-[#2d3444]"
-              }`}
-              title="Auto Sync GitHub & Vercel Deploy"
-            >
-              <Zap className="w-3.5 h-3.5 text-[#ea580c]" />
-              <span className="hidden md:inline">AUTO DEPLOY</span>
-            </button>
+              }
+            }}
+            className={`p-2 rounded-[3px] border transition-colors cursor-pointer ${
+              isRightPanelOpen && workspaceTab === "deploy"
+                ? "bg-[#291b15] border-[#ea580c] text-[#f97316] shadow-[0_0_8px_rgba(234,88,12,0.25)]"
+                : "bg-[#161922] hover:bg-[#202532] text-[#8e98aa] hover:text-[#f3f4f6] border-[#293040]"
+            }`}
+            title="Auto Sync GitHub & Vercel Deploy"
+          >
+            <Zap className="w-4 h-4 text-[#ea580c]" />
+          </button>
 
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono bg-[#1a1d26] hover:bg-[#252b38] text-[#c4cad6] hover:text-[#f3f4f6] border border-[#2d3444] rounded-[3px] transition-colors"
-              title="Buka Pengaturan"
-            >
-              <SettingsIcon className="w-3.5 h-3.5 text-[#ea580c]" />
-              <span className="hidden sm:inline">PENGATURAN</span>
-            </button>
+          {/* Settings Icon Button */}
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className="p-2 bg-[#161922] hover:bg-[#202532] text-[#8e98aa] hover:text-[#f3f4f6] border border-[#293040] rounded-[3px] transition-colors cursor-pointer"
+            title="Pengaturan Studio (Model, Suara, API)"
+          >
+            <SettingsIcon className="w-4 h-4 text-[#ea580c]" />
+          </button>
 
-            {/* Toggle Panel Right Visibility */}
-            <button
-              onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
-              className={`p-2 rounded-[3px] border transition-colors ${
-                isRightPanelOpen
-                  ? "bg-[#25211e] border-[#ea580c]/60 text-[#f97316]"
-                  : "bg-[#1a1d26] hover:bg-[#252b38] text-[#8e98aa] border-[#2d3444]"
-              }`}
-              title={isRightPanelOpen ? "Sembunyikan Panel Workspace" : "Tampilkan Panel Workspace"}
-            >
-              <PanelRight className="w-4 h-4" />
-            </button>
-          </div>
-        </header>
+          {/* Toggle Panel Right Visibility Icon Button */}
+          <button
+            onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
+            className={`p-2 rounded-[3px] border transition-colors cursor-pointer ${
+              isRightPanelOpen
+                ? "bg-[#25211e] border-[#ea580c]/60 text-[#f97316]"
+                : "bg-[#161922] hover:bg-[#202532] text-[#8e98aa] border-[#293040]"
+            }`}
+            title={isRightPanelOpen ? "Tutup Panel Workspace" : "Buka Panel Workspace"}
+          >
+            <PanelRight className="w-4 h-4" />
+          </button>
+        </div>
+      </header>
+
+      {/* Main Studio Workspace Row (Under unbroken global navbar) */}
+      <div className="flex-1 flex w-full h-[calc(100vh-3.5rem)] overflow-hidden relative z-10 min-w-0">
+        {/* Sidebar: Conversation history */}
+        <ConversationSidebar
+          isOpen={isSidebarOpen}
+          onClose={() => setIsSidebarOpen(false)}
+          conversations={conversations}
+          activeId={activeConvId}
+          onSelect={(id) => {
+            setActiveConvId(id);
+            setIsSidebarOpen(false);
+          }}
+          onNew={handleNewConversation}
+          onDelete={handleDeleteConversation}
+        />
 
         {/* Central Workspace (Chat Area - Responsive Fluid Grid) */}
-        <div className="flex-1 flex flex-col p-2.5 sm:p-4 md:p-5 overflow-hidden gap-2.5 sm:gap-3 w-full max-w-5xl 2xl:max-w-6xl mx-auto min-w-0 transition-all">
+        <main className="flex-1 flex flex-col h-full overflow-hidden bg-radial from-[#151821]/85 via-[#0d0f13]/90 to-[#08090d]/95 min-w-0">
+          <div className="flex-1 flex flex-col p-2.5 sm:p-4 md:p-5 overflow-hidden gap-2.5 sm:gap-3 w-full max-w-5xl 2xl:max-w-6xl mx-auto min-w-0 transition-all">
           {/* Top Audio Waveform Monitor */}
           <VoiceVisualizer
             isListening={isListening}
@@ -890,8 +903,9 @@ export default function VoiceAiStudio() {
         initialUrl={previewUrl}
         onUrlChange={setPreviewUrl}
       />
+    </div>
 
-      {/* Autonomous Coworker Cursor Operator */}
+    {/* Autonomous Coworker Cursor Operator */}
       <CoworkerCursorOperator
         onSpeak={speakText}
         onSwitchTab={setWorkspaceTab}
