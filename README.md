@@ -1,4 +1,6 @@
-# Jarvis — VOX·AI Studio
+# Omongin — Jarvis, asisten AI yang tinggal disuruh
+
+> Ngomong atau ketik, hasilnya jadi file: website, slide, dokumen, video.
 
 Asisten AI yang bisa diajak ngomong, lalu beneran ngerjain: bikin website, slide, dokumen, video, sampai riset di web. Proyek ini saya bangun karena capek pindah-pindah tool. Maunya satu tempat: ngomong atau ketik, hasilnya langsung jadi file yang bisa dipakai.
 
@@ -84,6 +86,14 @@ Kode utamanya ada di `src/lib/` (mesin tiap fitur) dan `src/app/api/` (endpoint)
 ## Catatan pihak ketiga
 
 Folder `skills/` berisi panduan desain dari proyek open source lain, lengkap dengan lisensinya. Rinciannya ada di `skills/NOTICE.md`.
+
+## Ikut bantu
+
+Proyek ini terbuka. Kalau nemu bug atau punya ide, buka issue atau kirim pull request. Perubahan kecil pun diterima dengan senang hati.
+
+## Lisensi
+
+MIT. Lihat file `LICENSE`. Panduan di folder `skills/` mengikuti lisensinya masing-masing.
 
 ## Penulis
 
