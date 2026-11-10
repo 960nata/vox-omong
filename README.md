@@ -1,4 +1,4 @@
-# Omongin — Jarvis, asisten AI yang tinggal disuruh
+# Vox Omong — Jarvis, asisten AI yang tinggal disuruh
 
 > Ngomong atau ketik, hasilnya jadi file: website, slide, dokumen, video.
 
