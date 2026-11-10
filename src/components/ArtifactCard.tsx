@@ -3,12 +3,17 @@
 import React, { useState } from "react";
 import { ArtifactItem, ArtifactFile, InvoiceData, SpreadsheetData, SlideDeckData, WebPreviewData } from "@/lib/types";
 import { exportToPptxFile, renderSlideDeckToVideo } from "@/lib/claudeSkills";
+import { documentHtml, invoiceHtml, letterHtml, openPrintWindow, toCsv } from "@/lib/claudeSkills/documentRender";
+import { downloadDocx, downloadLetterDocx } from "@/lib/claudeSkills/docxExport";
+import { getTheme } from "@/lib/claudeSkills/themes";
+import { downloadXlsx } from "@/lib/claudeSkills/xlsxExport";
+import { SlideView } from "./SlideView";
+import { WebsiteCard } from "./WebsiteCard";
 import {
   FileText,
   ChevronDown,
   ChevronUp,
   Download,
-  Eye,
   Check,
   Copy,
   Code2,
@@ -30,10 +35,26 @@ import {
   Bot,
   CheckCircle2,
   ExternalLink,
+  Atom,
 } from "lucide-react";
 
 interface ArtifactCardProps {
   artifact: ArtifactItem;
+}
+
+/** PDF asli dari server (Chrome headless); gagal -> jendela cetak browser. */
+async function downloadPdf(html: string, name: string, fallback: string) {
+  try {
+    const res = await fetch("/api/pdf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ html, filename: name }) });
+    if (!res.ok) throw new Error(String(res.status));
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(await res.blob());
+    a.download = `${name.replace(/[^\w\- ]+/g, "").trim() || "dokumen"}.pdf`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  } catch {
+    openPrintWindow(fallback);
+  }
 }
 
 export function ArtifactCard({ artifact }: ArtifactCardProps) {
@@ -71,43 +92,11 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
   };
 
   const handleDownloadCsv = (spreadsheet: SpreadsheetData) => {
-    const csvRows = [
-      spreadsheet.headers.join(","),
-      ...spreadsheet.rows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
-    ];
-    downloadFile(spreadsheet.filename || `${spreadsheet.title}.csv`, csvRows.join("\n"), "text/csv;charset=utf-8;");
-  };
-
-  const handlePrintDocument = (title: string, htmlContent: string) => {
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) return;
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>${title}</title>
-          <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; padding: 40px; color: #111; max-width: 800px; margin: 0 auto; }
-            h1 { border-bottom: 2px solid #ea580c; padding-bottom: 10px; color: #1e293b; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: left; }
-            th { background-color: #f1f5f9; color: #334155; }
-            .total-row { font-weight: bold; background-color: #f8fafc; }
-            .header-info { color: #64748b; font-size: 13px; margin-bottom: 20px; }
-            .footer { margin-top: 40px; border-top: 1px solid #e2e8f0; padding-top: 15px; font-size: 12px; color: #94a3b8; text-align: right; }
-          </style>
-        </head>
-        <body>
-          ${htmlContent}
-          <div class="footer">VOX·AI Acoustic Agent Document Engine</div>
-          <script>
-            window.onload = function() { window.print(); }
-          </script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
+    downloadFile(
+      spreadsheet.filename || `${spreadsheet.title}.csv`,
+      toCsv(spreadsheet.headers, spreadsheet.rows),
+      "text/csv;charset=utf-8;"
+    );
   };
 
   const renderFileBadge = (file: ArtifactFile) => {
@@ -116,32 +105,32 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
       case "tsx":
       case "jsx":
         return (
-          <span className="w-5 h-5 flex items-center justify-center text-[10px] font-bold text-[#38bdf8] bg-[#0c2233] border border-[#0284c7]/40 rounded-[2px]">
-            ⚛️
+          <span className="w-5 h-5 flex items-center justify-center text-[10px] font-bold text-lagoon bg-lagoon-wash border border-lagoon/40 rounded-md">
+            <Atom className="w-3 h-3" />
           </span>
         );
       case "ts":
       case "js":
         return (
-          <span className="w-5 h-5 flex items-center justify-center text-[10px] font-bold text-[#38bdf8] bg-[#0d2338] border border-[#0284c7]/40 rounded-[2px] font-mono">
+          <span className="w-5 h-5 flex items-center justify-center text-[10px] font-bold text-lagoon bg-lagoon-wash border border-lagoon/40 rounded-md font-mono">
             TS
           </span>
         );
       case "py":
         return (
-          <span className="w-5 h-5 flex items-center justify-center text-[10px] font-bold text-[#facc15] bg-[#2a2410] border border-[#ca8a04]/40 rounded-[2px] font-mono">
+          <span className="w-5 h-5 flex items-center justify-center text-[10px] font-bold text-glow bg-glow-wash border border-glow/40 rounded-md font-mono">
             PY
           </span>
         );
       case "pdf":
         return (
-          <span className="w-5 h-5 flex items-center justify-center text-[10px] font-bold text-[#f87171] bg-[#2b1616] border border-[#dc2626]/40 rounded-[2px] font-mono">
+          <span className="w-5 h-5 flex items-center justify-center text-[10px] font-bold text-danger bg-danger-wash border border-danger/40 rounded-md font-mono">
             PDF
           </span>
         );
       default:
         return (
-          <span className="w-5 h-5 flex items-center justify-center text-[10px] font-bold text-[#94a3b8] bg-[#1e232d] border border-[#334155] rounded-[2px] font-mono">
+          <span className="w-5 h-5 flex items-center justify-center text-[10px] font-bold text-fg-2 bg-hover border border-line-strong rounded-md font-mono">
             {"{ }"}
           </span>
         );
@@ -149,120 +138,48 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
   };
 
   // =========================================================================
+  // 0. WEBSITE (hasil code agent)
+  // =========================================================================
+  if (artifact.type === "website" && artifact.website) {
+    return <WebsiteCard artifact={artifact} />;
+  }
+
+  // =========================================================================
   // 1. INVOICE ARTIFACT
   // =========================================================================
   if (artifact.type === "invoice" && artifact.invoice) {
     const inv = artifact.invoice;
-    const invoiceHtml = `
-      <h1>INVOICE ${inv.invoiceNumber}</h1>
-      <div class="header-info">
-        <p><strong>Dari:</strong> ${inv.companyName} (${inv.companyAddress})</p>
-        <p><strong>Kepada:</strong> ${inv.clientName} (${inv.clientAddress})</p>
-        <p><strong>Tanggal:</strong> ${inv.date} | <strong>Jatuh Tempo:</strong> ${inv.dueDate}</p>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Deskripsi</th>
-            <th>Qty</th>
-            <th>Harga Satuan</th>
-            <th>Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${inv.items
-            .map(
-              (item) => `
-            <tr>
-              <td>${item.description}</td>
-              <td>${item.quantity}</td>
-              <td>${inv.currency} ${item.unitPrice.toLocaleString("id-ID")}</td>
-              <td>${inv.currency} ${item.total.toLocaleString("id-ID")}</td>
-            </tr>
-          `
-            )
-            .join("")}
-          <tr class="total-row">
-            <td colspan="3" style="text-align: right;">Subtotal:</td>
-            <td>${inv.currency} ${inv.subtotal.toLocaleString("id-ID")}</td>
-          </tr>
-          <tr class="total-row">
-            <td colspan="3" style="text-align: right;">Pajak (${inv.taxRate}%):</td>
-            <td>${inv.currency} ${inv.taxAmount.toLocaleString("id-ID")}</td>
-          </tr>
-          <tr class="total-row" style="font-size: 16px; color: #ea580c;">
-            <td colspan="3" style="text-align: right;">Total Bayar:</td>
-            <td>${inv.currency} ${inv.totalAmount.toLocaleString("id-ID")}</td>
-          </tr>
-        </tbody>
-      </table>
-      ${inv.notes ? `<p style="margin-top: 25px; font-size: 13px; color: #64748b;"><strong>Catatan:</strong> ${inv.notes}</p>` : ""}
-    `;
-
+    const fmt = new Intl.NumberFormat("id-ID", { style: "currency", currency: inv.currency || "IDR", maximumFractionDigits: 0 });
     return (
-      <div className="w-full my-3 bg-[#13151b] border border-[#2b3140] rounded-[3px] p-4 shadow-md text-xs">
-        <div className="flex items-center justify-between pb-3 border-b border-[#232835]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-[3px] bg-[#291b16] border border-[#ea580c]/50 flex items-center justify-center text-[#ea580c]">
-              <Receipt className="w-4 h-4" />
+      <div className="w-full max-w-full min-w-0 rounded-2xl border border-line bg-raised overflow-hidden shadow-[0_16px_40px_-30px_rgba(0,0,0,0.8)]">
+        <div className="px-3.5 py-3 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white shrink-0" style={{ background: inv.accent || "var(--accent)" }}>
+              <Receipt className="w-3.5 h-3.5" />
             </div>
-            <div>
-              <div className="font-semibold text-sm text-[#f3f4f6]">
-                Invoice #{inv.invoiceNumber}
-              </div>
-              <div className="text-[11px] text-[#788195]">
-                {inv.clientName} · Jatuh Tempo: {inv.dueDate}
+            <div className="min-w-0">
+              <div className="font-display font-bold text-fg truncate">{inv.clientName}</div>
+              <div className="text-[11px] text-fg-3 font-mono truncate">
+                {inv.invoiceNumber} · gaya {inv.style || "modern"}
               </div>
             </div>
           </div>
-
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <div className="text-right mr-1">
+              <div className="text-[10px] uppercase tracking-[0.14em] text-fg-4 font-mono">Total</div>
+              <div className="font-display font-bold text-fg">{fmt.format(inv.totalAmount)}</div>
+            </div>
             <button
-              onClick={() => handlePrintDocument(`Invoice-${inv.invoiceNumber}`, invoiceHtml)}
-              className="px-3 py-1.5 bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] flex items-center gap-1.5 font-medium transition-colors shadow-xs"
+              onClick={() => downloadPdf(invoiceHtml(inv), `Invoice ${inv.invoiceNumber}`, invoiceHtml(inv, true))}
+              className="px-3 py-1.5 bg-accent hover:bg-accent-hi text-on-accent rounded-full flex items-center gap-1.5 text-xs font-medium transition-colors cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Cetak / Unduh PDF</span>
+              PDF
             </button>
           </div>
         </div>
-
-        {/* Invoice Items summary table */}
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-left font-mono">
-            <thead>
-              <tr className="text-[11px] text-[#717b8f] border-b border-[#1e232e]">
-                <th className="py-1.5">Deskripsi</th>
-                <th className="py-1.5 text-center">Qty</th>
-                <th className="py-1.5 text-right">Harga</th>
-                <th className="py-1.5 text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#1e232e] text-[#d1d5db]">
-              {inv.items.map((item, idx) => (
-                <tr key={idx}>
-                  <td className="py-1.5 font-sans">{item.description}</td>
-                  <td className="py-1.5 text-center">{item.quantity}</td>
-                  <td className="py-1.5 text-right">
-                    {inv.currency} {item.unitPrice.toLocaleString("id-ID")}
-                  </td>
-                  <td className="py-1.5 text-right">
-                    {inv.currency} {item.total.toLocaleString("id-ID")}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="mt-3 pt-3 border-t border-[#232835] flex justify-between items-center text-xs">
-          <span className="text-[#8892a4]">Status: Siap Ditagihkan</span>
-          <div className="text-right">
-            <span className="text-[#8892a4] mr-2">Total Akhir:</span>
-            <span className="text-base font-bold text-[#f97316] font-mono">
-              {inv.currency} {inv.totalAmount.toLocaleString("id-ID")}
-            </span>
-          </div>
+        <div className="mx-2.5 mb-2.5 rounded-xl overflow-hidden border border-line bg-white">
+          <iframe srcDoc={invoiceHtml(inv)} title={`Invoice ${inv.invoiceNumber}`} sandbox="" className="w-full h-[300px] border-0 pointer-events-none" />
         </div>
       </div>
     );
@@ -274,34 +191,39 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
   if (artifact.type === "spreadsheet" && artifact.spreadsheet) {
     const sheet = artifact.spreadsheet;
     return (
-      <div className="w-full my-3 bg-[#13151b] border border-[#2b3140] rounded-[3px] p-3.5 shadow-md text-xs">
-        <div className="flex items-center justify-between pb-2.5 border-b border-[#232835]">
+      <div className="w-full my-3 bg-raised border border-line-strong rounded-lg p-3.5 shadow-md text-xs">
+        <div className="flex items-center justify-between pb-2.5 border-b border-line">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-[3px] bg-[#16271c] border border-[#10b981]/50 flex items-center justify-center text-[#10b981]">
+            <div className="w-7 h-7 rounded-lg bg-moss-wash border border-moss/50 flex items-center justify-center text-moss">
               <Table className="w-4 h-4" />
             </div>
             <div>
-              <div className="font-semibold text-sm text-[#f3f4f6]">{sheet.title}</div>
-              <div className="text-[11px] text-[#788195] font-mono">
-                {sheet.rows.length} Baris Data · Excel / CSV
+              <div className="font-semibold text-sm text-fg">{sheet.title}</div>
+              <div className="text-[11px] text-fg-3 font-mono">
+                {sheet.rows.length} baris · .xlsx / CSV
               </div>
             </div>
           </div>
 
-          <button
-            onClick={() => handleDownloadCsv(sheet)}
-            className="px-3 py-1.5 bg-[#10b981] hover:bg-[#059669] text-white rounded-[3px] flex items-center gap-1.5 font-medium transition-colors font-mono shadow-xs"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Unduh CSV / Excel</span>
-          </button>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={() => downloadXlsx(sheet)}
+              className="px-3 py-1.5 bg-moss hover:bg-moss text-on-accent rounded-lg flex items-center gap-1.5 font-medium transition-colors font-mono shadow-xs"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Excel .xlsx</span>
+            </button>
+            <button onClick={() => handleDownloadCsv(sheet)} className="px-2.5 py-1.5 rounded-lg text-fg-2 hover:bg-hover font-mono">
+              CSV
+            </button>
+          </div>
         </div>
 
         {/* Spreadsheet Data preview */}
         <div className="mt-3 overflow-x-auto max-h-52 scrollbar-thin">
           <table className="w-full text-left font-mono border-collapse">
             <thead>
-              <tr className="bg-[#181b24] text-[#a1a8b8] border-b border-[#242a38]">
+              <tr className="bg-raised text-fg-2 border-b border-line">
                 {sheet.headers.map((h, i) => (
                   <th key={i} className="py-2 px-3 text-[11px] font-semibold">
                     {h}
@@ -309,9 +231,9 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#1e232e] text-[#d1d5db]">
+            <tbody className="divide-y divide-line text-fg">
               {sheet.rows.map((row, rIdx) => (
-                <tr key={rIdx} className="hover:bg-[#1a1d26] transition-colors">
+                <tr key={rIdx} className="hover:bg-hover transition-colors">
                   {row.map((cell, cIdx) => (
                     <td key={cIdx} className="py-1.5 px-3 whitespace-nowrap">
                       {typeof cell === "number" ? cell.toLocaleString("id-ID") : cell}
@@ -333,22 +255,22 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
     const pipeline = artifact.swarmPipeline;
 
     return (
-      <div className="w-full my-3 bg-[#111319] border border-[#2b3345] rounded-[3px] p-4 shadow-xl text-xs space-y-3.5">
+      <div className="w-full my-3 bg-raised border border-line-strong rounded-lg p-4 shadow-xl text-xs space-y-3.5">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-[#212736] flex-wrap gap-2">
+        <div className="flex items-center justify-between pb-3 border-b border-line flex-wrap gap-2">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-[3px] bg-[#1a2233] border border-[#38bdf8]/50 flex items-center justify-center text-[#38bdf8]">
+            <div className="w-7 h-7 rounded-lg bg-hover border border-lagoon/50 flex items-center justify-center text-lagoon">
               <Layers className="w-4 h-4" />
             </div>
             <div>
-              <div className="font-bold text-sm text-white font-mono flex items-center gap-2">
+              <div className="font-bold text-sm text-fg font-mono flex items-center gap-2">
                 <span>SWARM BUILD PIPELINE</span>
-                <span className="text-[10px] px-2 py-0.5 bg-[#12261a] text-[#10b981] border border-[#166534] rounded-[2px]">
+                <span className="text-[10px] px-2 py-0.5 bg-moss-wash text-moss border border-moss rounded-md">
                   ASSEMBLED
                 </span>
               </div>
-              <div className="text-[11px] text-[#788295] font-mono">
-                Project: <span className="text-[#38bdf8] font-bold">{pipeline.projectName}</span> · Target: <span className="text-[#ea580c] font-bold">{pipeline.targetPage}</span>
+              <div className="text-[11px] text-fg-3 font-mono">
+                Project: <span className="text-lagoon font-bold">{pipeline.projectName}</span> · Target: <span className="text-accent font-bold">{pipeline.targetPage}</span>
               </div>
             </div>
           </div>
@@ -358,7 +280,7 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
               href={pipeline.previewUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="px-3 py-1.5 bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] flex items-center gap-1.5 font-mono text-xs font-semibold transition-colors shadow-xs"
+              className="px-3 py-1.5 bg-accent hover:bg-accent-hi text-on-accent rounded-lg flex items-center gap-1.5 font-mono text-xs font-semibold transition-colors shadow-xs"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               <span>Buka Preview Halaman</span>
@@ -367,43 +289,43 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
         </div>
 
         {/* Progress Metrics Bar */}
-        <div className="p-2.5 bg-[#161a24] border border-[#262f42] rounded-[3px] flex items-center justify-between text-xs font-mono">
+        <div className="p-2.5 bg-raised border border-line-strong rounded-lg flex items-center justify-between text-xs font-mono">
           <div className="flex items-center gap-2">
-            <Bot className="w-4 h-4 text-[#38bdf8]" />
-            <span className="text-[#cbd5e1]">
-              Swarm Workers: <strong className="text-white">{pipeline.completedComponents}/{pipeline.totalComponents} Items Selesai</strong>
+            <Bot className="w-4 h-4 text-lagoon" />
+            <span className="text-fg">
+              Swarm Workers: <strong className="text-fg">{pipeline.completedComponents}/{pipeline.totalComponents} Items Selesai</strong>
             </span>
           </div>
-          <span className="text-[#10b981] font-bold">100% COMPLETE</span>
+          <span className="text-moss font-bold">100% COMPLETE</span>
         </div>
 
         {/* Component Items List */}
         <div className="space-y-1.5">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-[#697488] px-1">
+          <div className="text-[10px] font-mono uppercase tracking-wider text-fg-3 px-1">
             Komponen Yang Dikerjakan Swarm:
           </div>
           {pipeline.components.map((comp, idx) => (
             <div
               key={idx}
-              className="p-2.5 bg-[#141720] border border-[#212838] hover:border-[#38bdf8]/50 rounded-[3px] flex items-center justify-between gap-3 transition-colors"
+              className="p-2.5 bg-raised border border-line hover:border-lagoon/50 rounded-lg flex items-center justify-between gap-3 transition-colors"
             >
               <div className="flex items-center gap-2.5 min-w-0">
-                <CheckCircle2 className="w-4 h-4 text-[#10b981] shrink-0" />
+                <CheckCircle2 className="w-4 h-4 text-moss shrink-0" />
                 <div className="min-w-0">
-                  <div className="text-xs font-bold text-white font-mono truncate">
+                  <div className="text-xs font-bold text-fg font-mono truncate">
                     {comp.name}
                   </div>
-                  <div className="text-[11px] text-[#717d94] font-sans truncate">
+                  <div className="text-[11px] text-fg-3 font-sans truncate">
                     {comp.description}
                   </div>
                 </div>
               </div>
 
               <div className="flex items-center gap-2 shrink-0 font-mono text-[11px]">
-                <span className="text-[#38bdf8] bg-[#162234] border border-[#25364e] px-1.5 py-0.5 rounded-[2px] text-[10px]">
+                <span className="text-lagoon bg-lagoon-wash border border-line-strong px-1.5 py-0.5 rounded-md text-[10px]">
                   {comp.role}
                 </span>
-                <span className="text-[#22c55e]">+{comp.linesOfCode} lines</span>
+                <span className="text-moss">+{comp.linesOfCode} lines</span>
               </div>
             </div>
           ))}
@@ -464,20 +386,20 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
     const currentSlide = deck.slides[currentSlideIndex] || deck.slides[0];
 
     return (
-      <div className="w-full my-3 bg-[#13151b] border border-[#2b3140] rounded-[3px] p-4 shadow-md text-xs">
-        <div className="flex items-center justify-between pb-3 border-b border-[#232835] gap-2 flex-wrap">
+      <div className="w-full my-3 bg-raised border border-line-strong rounded-lg p-4 shadow-md text-xs">
+        <div className="flex items-center justify-between pb-3 border-b border-line gap-2 flex-wrap">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-[3px] bg-[#292215] border border-[#eab308]/50 flex items-center justify-center text-[#eab308] shrink-0">
+            <div className="w-7 h-7 rounded-lg bg-glow-wash border border-glow/50 flex items-center justify-center text-glow shrink-0">
               <Presentation className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <div className="font-semibold text-sm text-[#f3f4f6] truncate font-mono">
+              <div className="font-semibold text-sm text-fg truncate font-mono">
                 {deck.deckTitle}
               </div>
-              <div className="text-[11px] text-[#788195] font-mono flex items-center gap-1.5">
+              <div className="text-[11px] text-fg-3 font-mono flex items-center gap-1.5">
                 <span>Slide {currentSlideIndex + 1} dari {deck.slides.length}</span>
                 <span>•</span>
-                <span className="text-[#38bdf8]">CLAUDE PPTX &amp; VIDEO SKILL</span>
+                <span className="text-lagoon">Tema {getTheme(deck.theme).name}</span>
               </div>
             </div>
           </div>
@@ -489,16 +411,16 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
               onClick={() => handleExportPptx(deck)}
               disabled={isExportingPptx}
               title="Unduh file Microsoft PowerPoint asli (.pptx)"
-              className="px-2.5 py-1 text-xs font-mono bg-[#221c17] hover:bg-[#30251c] border border-[#ea580c]/50 text-[#f97316] rounded-[3px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+              className="px-2.5 py-1 text-xs font-mono bg-raised hover:bg-accent-wash border border-accent/50 text-accent-hi rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
             >
               {isExportingPptx ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#ea580c]" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />
                   <span>Menyimpan .PPTX...</span>
                 </>
               ) : (
                 <>
-                  <Download className="w-3.5 h-3.5 text-[#ea580c]" />
+                  <Download className="w-3.5 h-3.5 text-accent" />
                   <span>Unduh .PPTX</span>
                 </>
               )}
@@ -510,16 +432,16 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
               onClick={() => handleExportVideo(deck)}
               disabled={isExportingVideo}
               title="Render slide presentasi menjadi video animasi (.webm)"
-              className="px-2.5 py-1 text-xs font-mono bg-[#1c2230] hover:bg-[#252f44] border border-[#38bdf8]/50 text-[#38bdf8] rounded-[3px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+              className="px-2.5 py-1 text-xs font-mono bg-raised hover:bg-hover border border-lagoon/50 text-lagoon rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
             >
               {isExportingVideo ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#38bdf8]" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-lagoon" />
                   <span>Render Video {videoProgress}%...</span>
                 </>
               ) : (
                 <>
-                  <Film className="w-3.5 h-3.5 text-[#38bdf8]" />
+                  <Film className="w-3.5 h-3.5 text-lagoon" />
                   <span>Export Video</span>
                 </>
               )}
@@ -530,21 +452,21 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
               type="button"
               onClick={() => setShowPresentationModal(true)}
               title="Putar presentasi dalam mode layar penuh / animasi"
-              className="px-2.5 py-1 text-xs font-mono bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] flex items-center gap-1.5 transition-colors cursor-pointer font-medium shadow-xs"
+              className="px-2.5 py-1 text-xs font-mono bg-accent hover:bg-accent-hi text-on-accent rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer font-medium shadow-xs"
             >
               <Play className="w-3.5 h-3.5" />
               <span>Presentasi</span>
             </button>
 
-            <div className="flex items-center gap-1 ml-1 border-l border-[#273042] pl-2">
+            <div className="flex items-center gap-1 ml-1 border-l border-line-strong pl-2">
               <button
                 onClick={() => setCurrentSlideIndex((prev) => Math.max(0, prev - 1))}
                 disabled={currentSlideIndex === 0}
-                className="p-1 bg-[#1c202a] hover:bg-[#252b38] disabled:opacity-40 text-[#c0c6d4] rounded-[2px] border border-[#2f3647] transition-colors cursor-pointer"
+                className="p-1 bg-raised hover:bg-hover disabled:opacity-40 text-fg-2 rounded-md border border-line-strong transition-colors cursor-pointer"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
-              <span className="font-mono text-xs px-1.5 text-[#9ca3af]">
+              <span className="font-mono text-xs px-1.5 text-fg-2">
                 {currentSlideIndex + 1}/{deck.slides.length}
               </span>
               <button
@@ -552,7 +474,7 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
                   setCurrentSlideIndex((prev) => Math.min(deck.slides.length - 1, prev + 1))
                 }
                 disabled={currentSlideIndex === deck.slides.length - 1}
-                className="p-1 bg-[#1c202a] hover:bg-[#252b38] disabled:opacity-40 text-[#c0c6d4] rounded-[2px] border border-[#2f3647] transition-colors cursor-pointer"
+                className="p-1 bg-raised hover:bg-hover disabled:opacity-40 text-fg-2 rounded-md border border-line-strong transition-colors cursor-pointer"
               >
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -560,100 +482,94 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
           </div>
         </div>
 
-        {/* Current Slide Display Canvas */}
-        <div className="mt-3 p-5 bg-[#0d0f14] border border-[#232834] rounded-[3px] min-h-[160px] flex flex-col justify-between shadow-inner">
-          <div>
-            <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#1c2230]">
-              <h3 className="text-base font-bold text-[#f3f4f6]">
-                {currentSlide.title}
-              </h3>
-              <span className="text-[10px] font-mono px-2 py-0.5 bg-[#171d28] border border-[#263145] text-[#38bdf8] rounded-[2px]">
-                SLIDE #{currentSlide.slideNumber}
-              </span>
-            </div>
-
-            <ul className="space-y-2 text-xs text-[#cbd5e1] leading-relaxed">
-              {currentSlide.bullets.map((b, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#ea580c] mt-1.5 shrink-0" />
-                  <span>{b}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {currentSlide.speakerNotes && (
-            <div className="mt-4 pt-2.5 border-t border-[#1e232e] text-[11px] text-[#788195] italic font-mono bg-[#11141c] p-2.5 rounded-[2px] border border-[#1e2433]">
-              <strong className="text-[#ea580c] not-italic">Catatan Presenter:</strong> {currentSlide.speakerNotes}
-            </div>
-          )}
+        {/* Slide aktif */}
+        <div className="mt-3 rounded-xl overflow-hidden border border-line shadow-[0_12px_30px_-24px_rgba(0,0,0,0.9)]">
+          <SlideView
+            key={currentSlideIndex}
+            slide={currentSlide}
+            themeId={deck.theme}
+            index={currentSlideIndex}
+            total={deck.slides.length}
+            deckTitle={deck.deckTitle}
+            animate
+          />
         </div>
+
+        {/* Thumbnail semua slide */}
+        <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:thin]">
+          {deck.slides.map((sl, i) => (
+            <button
+              key={i}
+              onClick={() => setCurrentSlideIndex(i)}
+              aria-label={`Slide ${i + 1}`}
+              className={`shrink-0 w-16 rounded-md overflow-hidden border-2 transition-all cursor-pointer ${
+                i === currentSlideIndex ? "border-accent" : "border-transparent opacity-70 hover:opacity-100"
+              }`}
+            >
+              <div className="pointer-events-none">
+                <SlideView slide={sl} themeId={deck.theme} index={i} total={deck.slides.length} deckTitle={deck.deckTitle} />
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {currentSlide.speakerNotes && (
+          <div className="mt-2 px-3 py-2 rounded-xl bg-base text-[12px] text-fg-3 leading-relaxed">
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-fg-4 mr-2">Catatan presenter</span>
+            {currentSlide.speakerNotes}
+          </div>
+        )}
 
         {/* Fullscreen Presentation Modal */}
         {showPresentationModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 sm:p-8 backdrop-blur-md animate-fadeIn">
-            <div className="w-full max-w-4xl bg-[#0f121a] border border-[#2e374b] rounded-[4px] shadow-2xl flex flex-col overflow-hidden max-h-[90vh]">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/50 p-4 sm:p-8 backdrop-blur-md animate-rise">
+            <div className="w-full max-w-6xl bg-raised border border-line-strong rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[94vh]">
               {/* Modal Top Bar */}
-              <div className="flex items-center justify-between px-5 py-3 bg-[#151924] border-b border-[#252d3f]">
+              <div className="flex items-center justify-between px-5 py-3 bg-raised border-b border-line">
                 <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-[1px] bg-[#ea580c]" />
-                  <span className="font-mono text-xs font-bold text-[#f3f4f6] tracking-wider uppercase">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-accent" />
+                  <span className="font-mono text-xs font-bold text-fg tracking-wider uppercase">
                     {deck.deckTitle}
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs font-mono text-[#8a95aa]">
+                  <span className="text-xs font-mono text-fg-3">
                     Slide {currentSlideIndex + 1} dari {deck.slides.length}
                   </span>
                   <button
                     onClick={() => setShowPresentationModal(false)}
-                    className="p-1 hover:bg-[#252c3c] text-[#8a95aa] hover:text-white rounded-[2px] transition-colors cursor-pointer"
+                    className="p-1 hover:bg-hover text-fg-3 hover:text-fg rounded-md transition-colors cursor-pointer"
                   >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
               </div>
 
-              {/* Slide Canvas 16:9 Display */}
-              <div className="flex-1 p-8 sm:p-12 flex flex-col justify-between bg-gradient-to-br from-[#0c0e14] via-[#121622] to-[#0a0c10] min-h-[380px] overflow-y-auto">
-                <div>
-                  <span className="text-xs font-mono text-[#ea580c] uppercase font-bold tracking-widest block mb-2">
-                    SECTION {currentSlideIndex + 1}
-                  </span>
-                  <h1 className="text-2xl sm:text-3xl font-extrabold text-white mb-6 tracking-tight">
-                    {currentSlide.title}
-                  </h1>
-
-                  <ul className="space-y-4 max-w-2xl">
-                    {currentSlide.bullets.map((bullet, idx) => (
-                      <li
-                        key={idx}
-                        className="flex items-start gap-3 text-base text-[#d1d5db] font-sans leading-relaxed"
-                      >
-                        <span className="w-2 h-2 rounded-full bg-[#38bdf8] mt-2 shrink-0" />
-                        <span>{bullet}</span>
-                      </li>
-                    ))}
-                  </ul>
+              {/* Slide 16:9 */}
+              <div className="flex-1 flex items-center justify-center bg-scrim/5 p-3 sm:p-5 overflow-hidden">
+                <div className="w-full max-w-[min(100%,calc((90vh-140px)*16/9))] rounded-lg overflow-hidden shadow-2xl">
+                  <SlideView
+                    key={`p-${currentSlideIndex}`}
+                    slide={currentSlide}
+                    themeId={deck.theme}
+                    index={currentSlideIndex}
+                    total={deck.slides.length}
+                    deckTitle={deck.deckTitle}
+                    animate
+                  />
                 </div>
-
-                {currentSlide.speakerNotes && (
-                  <div className="mt-8 p-3.5 bg-[#141926]/80 border border-[#2b3448] rounded-[3px] text-xs font-mono text-[#94a3b8] italic">
-                    <span className="text-[#ea580c] font-bold not-italic">Speaker Note:</span> {currentSlide.speakerNotes}
-                  </div>
-                )}
               </div>
 
               {/* Modal Bottom Navigator */}
-              <div className="flex items-center justify-between px-5 py-3 bg-[#131722] border-t border-[#222a3b] flex-wrap gap-2">
+              <div className="flex items-center justify-between px-5 py-3 bg-raised border-t border-line flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleExportPptx(deck)}
                     disabled={isExportingPptx}
-                    className="px-3 py-1.5 text-xs font-mono bg-[#221c17] hover:bg-[#30251c] border border-[#ea580c]/50 text-[#f97316] rounded-[3px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                    className="px-3 py-1.5 text-xs font-mono bg-raised hover:bg-accent-wash border border-accent/50 text-accent-hi rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                   >
-                    <Download className="w-3.5 h-3.5 text-[#ea580c]" />
+                    <Download className="w-3.5 h-3.5 text-accent" />
                     <span>{isExportingPptx ? "Menyimpan .PPTX..." : "Unduh .PPTX"}</span>
                   </button>
 
@@ -661,7 +577,7 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
                     type="button"
                     onClick={() => handleExportVideo(deck)}
                     disabled={isExportingVideo}
-                    className="px-3 py-1.5 text-xs font-mono bg-[#1c2232] hover:bg-[#252d42] border border-[#38bdf8]/50 text-[#38bdf8] rounded-[3px] flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                    className="px-3 py-1.5 text-xs font-mono bg-raised hover:bg-hover border border-lagoon/50 text-lagoon rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                   >
                     <Film className="w-3.5 h-3.5" />
                     <span>{isExportingVideo ? `Rendering Video ${videoProgress}%...` : "Export ke Video MP4/WebM"}</span>
@@ -672,7 +588,7 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
                   <button
                     onClick={() => setCurrentSlideIndex((prev) => Math.max(0, prev - 1))}
                     disabled={currentSlideIndex === 0}
-                    className="px-3 py-1.5 text-xs font-mono bg-[#1c2232] hover:bg-[#273045] disabled:opacity-40 text-white rounded-[3px] border border-[#2e374b] transition-colors cursor-pointer"
+                    className="px-3 py-1.5 text-xs font-mono bg-raised hover:bg-hover disabled:opacity-40 text-fg rounded-lg border border-line-strong transition-colors cursor-pointer"
                   >
                     Sebelumnya
                   </button>
@@ -681,7 +597,7 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
                       setCurrentSlideIndex((prev) => Math.min(deck.slides.length - 1, prev + 1))
                     }
                     disabled={currentSlideIndex === deck.slides.length - 1}
-                    className="px-4 py-1.5 text-xs font-mono bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] transition-colors cursor-pointer font-semibold shadow-xs"
+                    className="px-4 py-1.5 text-xs font-mono bg-accent hover:bg-accent-hi text-on-accent rounded-lg transition-colors cursor-pointer font-semibold shadow-xs"
                   >
                     Selanjutnya &rarr;
                   </button>
@@ -697,27 +613,61 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
   // =========================================================================
   // 4. WEB COMPONENT / SANDBOX PREVIEW
   // =========================================================================
+  if (artifact.type === "video" && artifact.video) {
+    const v = artifact.video;
+    return (
+      <div className="w-full max-w-full min-w-0 rounded-2xl border border-line bg-raised overflow-hidden">
+        <div className="px-3 py-2.5 flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-accent text-white flex items-center justify-center shrink-0">
+              <Film className="w-3.5 h-3.5" />
+            </div>
+            <div className="min-w-0">
+              <div className="font-display font-bold text-fg truncate text-sm">{artifact.title}</div>
+              <div className="text-[11px] text-fg-3 font-mono">{Math.round(v.seconds)} detik{v.scenes ? ` · ${v.scenes} adegan` : ""} · .webm</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+            {v.recorded && (
+              <a href={v.url} download={`${artifact.title.replace(/[^\w\- ]+/g, "").trim() || "video"}.webm`} className="px-3 py-1.5 bg-accent hover:bg-accent-hi text-on-accent rounded-full flex items-center gap-1.5 text-xs font-medium">
+                <Download className="w-3.5 h-3.5" /> Unduh
+              </a>
+            )}
+            <a href={v.htmlUrl} target="_blank" rel="noopener" className="px-2.5 py-1.5 rounded-full text-xs text-fg-2 hover:bg-hover flex items-center gap-1.5">
+              <Maximize2 className="w-3.5 h-3.5" /> Animasi HTML
+            </a>
+          </div>
+        </div>
+        {v.recorded ? (
+          <video src={v.url} controls playsInline preload="metadata" className="w-full aspect-video max-h-72 bg-black" />
+        ) : (
+          <div className="mx-2.5 mb-2.5 px-3 py-2 rounded-xl bg-base text-[12px] text-fg-3">{v.note}</div>
+        )}
+      </div>
+    );
+  }
+
   if (artifact.type === "web_preview" && artifact.webPreview) {
     return (
-      <div className="w-full my-3 bg-[#13151b] border border-[#2b3140] rounded-[3px] p-3.5 shadow-md text-xs">
-        <div className="flex items-center justify-between pb-2.5 border-b border-[#232835]">
+      <div className="w-full my-3 bg-raised border border-line-strong rounded-lg p-3.5 shadow-md text-xs">
+        <div className="flex items-center justify-between pb-2.5 border-b border-line">
           <div className="flex items-center gap-2">
-            <Layout className="w-4 h-4 text-[#38bdf8]" />
-            <span className="font-semibold text-sm text-[#f3f4f6]">
+            <Layout className="w-4 h-4 text-lagoon" />
+            <span className="font-semibold text-sm text-fg">
               {artifact.webPreview.title || "Live Web Component Sandbox"}
             </span>
           </div>
-          <span className="text-[10px] text-[#10b981] bg-[#102419] px-2 py-0.5 rounded-[2px] border border-[#10b981]/30 font-mono">
+          <span className="text-[10px] text-moss bg-moss-wash px-2 py-0.5 rounded-md border border-moss/30 font-mono">
             SANDBOX ACTIVE
           </span>
         </div>
 
-        <div className="mt-3 border border-[#232835] rounded-[3px] overflow-hidden bg-white">
+        <div className="mt-3 border border-line rounded-lg overflow-hidden bg-raised">
           <iframe
             srcDoc={artifact.webPreview.html}
             title="Preview"
             sandbox="allow-scripts"
-            className="w-full h-64 border-none"
+            className="w-full h-64 border-none pointer-events-none"
           />
         </div>
       </div>
@@ -728,94 +678,63 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
   // 5. PDF DOCUMENT ARTIFACT (Enhanced)
   // =========================================================================
   if (artifact.type === "pdf_document") {
-    const title = artifact.pdfTitle || artifact.title || "Dokumen-AI";
-    const content = artifact.pdfContent || artifact.summary || "Konten dokumen";
-
+    const title = artifact.title || artifact.pdfTitle || "Dokumen";
+    const content = artifact.pdfContent || artifact.summary || "";
+    const docProps = { title, subtitle: artifact.summary, markdown: content, theme: artifact.docTheme };
+    const letter = artifact.letter;
+    const htmlOf = (print = false) => (letter ? letterHtml(letter, print) : documentHtml(docProps, print));
     return (
-      <div className="w-full my-3 bg-[#13151b] border border-[#2b3140] rounded-[3px] p-3.5 shadow-md">
-        <div className="flex items-center justify-between gap-3">
+      <div className="w-full max-w-full min-w-0 rounded-2xl border border-line bg-raised overflow-hidden shadow-[0_16px_40px_-30px_rgba(0,0,0,0.8)]">
+        <div className="px-3.5 py-3 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-[3px] bg-[#2a1717] border border-[#ef4444]/40 flex items-center justify-center text-[#ef4444] shrink-0">
-              <FileText className="w-5 h-5" />
+            <div className="w-7 h-7 rounded-lg bg-danger-wash text-danger flex items-center justify-center shrink-0">
+              <FileText className="w-3.5 h-3.5" />
             </div>
             <div className="min-w-0">
-              <div className="text-xs font-semibold text-[#f3f4f6] truncate font-mono">
-                {title}
-              </div>
-              <div className="text-[11px] text-[#7d869a] flex items-center gap-2 mt-0.5 font-mono">
-                <span>PDF DOCUMENT</span>
-                <span>•</span>
-                <span>{artifact.pdfPages || 1} Halaman</span>
-                <span>•</span>
-                <span className="text-[#10b981]">GENERATED</span>
+              <div className="font-display font-bold text-fg truncate">{title}</div>
+              <div className="text-[11px] text-fg-3 font-mono">
+                {letter ? `Surat ${letter.kind}${letter.kop ? " berkop" : ""} · 1 halaman` : `±${artifact.pdfPages || 1} halaman · tema ${getTheme(artifact.docTheme).name}`}
               </div>
             </div>
           </div>
-
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
             <button
               onClick={() => setShowModal(true)}
-              className="px-2.5 py-1.5 text-xs font-mono bg-[#1c202a] hover:bg-[#252b38] text-[#c0c6d4] hover:text-[#f3f4f6] border border-[#2f3647] rounded-[3px] flex items-center gap-1.5 transition-colors"
+              className="px-2.5 py-1.5 rounded-full text-xs text-fg-2 hover:bg-hover flex items-center gap-1.5 cursor-pointer"
             >
-              <Eye className="w-3.5 h-3.5 text-[#ea580c]" />
-              <span className="hidden sm:inline">Preview</span>
+              <Maximize2 className="w-3.5 h-3.5" />
+              Baca penuh
             </button>
             <button
-              onClick={() =>
-                handlePrintDocument(
-                  title,
-                  `<h1>${title}</h1><div class="header-info">Dibuat oleh VOX·AI Studio</div><div style="white-space: pre-wrap;">${content}</div>`
-                )
-              }
-              className="px-3 py-1.5 text-xs font-mono bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] flex items-center gap-1.5 transition-colors font-medium shadow-xs"
+              onClick={() => void (letter ? downloadLetterDocx(letter) : downloadDocx(docProps))}
+              className="px-2.5 py-1.5 rounded-full text-xs text-fg-2 hover:bg-hover flex items-center gap-1.5 cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Download PDF</span>
+              Unduh .DOCX
+            </button>
+            <button
+              onClick={() => downloadPdf(htmlOf(), title, htmlOf(true))}
+              className="px-3 py-1.5 bg-accent hover:bg-accent-hi text-on-accent rounded-full flex items-center gap-1.5 text-xs font-medium transition-colors cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              PDF
             </button>
           </div>
         </div>
+        <div className="mx-2.5 mb-2.5 rounded-xl overflow-hidden border border-line bg-white">
+          <iframe srcDoc={htmlOf()} title={title} sandbox="" className="w-full h-[280px] border-0 pointer-events-none" />
+        </div>
 
-        {artifact.summary && (
-          <div className="mt-2.5 pt-2 border-t border-[#222734] text-xs text-[#9aa2b5] leading-relaxed">
-            {artifact.summary}
-          </div>
-        )}
-
-        {/* PDF Preview Modal */}
         {showModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs">
-            <div className="w-full max-w-2xl bg-[#14171d] border border-[#2f3545] rounded-[3px] p-5 shadow-2xl flex flex-col max-h-[85vh]">
-              <div className="flex items-center justify-between pb-3 border-b border-[#252b38]">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-[#ef4444]" />
-                  <span className="text-xs font-mono font-semibold text-[#f3f4f6]">{title}</span>
-                </div>
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="text-xs text-[#8a92a5] hover:text-white px-2 py-1 bg-[#1d222d] border border-[#2c3240] rounded-[3px]"
-                >
-                  Tutup
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto my-4 p-4 bg-[#0e1014] border border-[#222734] rounded-[3px] text-xs font-sans text-[#cbd5e1] whitespace-pre-wrap leading-relaxed select-text">
-                {content}
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-[#252b38]">
-                <button
-                  onClick={() =>
-                    handlePrintDocument(
-                      title,
-                      `<h1>${title}</h1><div class="header-info">Dibuat oleh VOX·AI Studio</div><div style="white-space: pre-wrap;">${content}</div>`
-                    )
-                  }
-                  className="px-4 py-2 text-xs font-mono bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] flex items-center gap-1.5 transition-colors font-medium"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Cetak / Simpan PDF</span>
-                </button>
-              </div>
+          <div className="fixed inset-0 z-[60] bg-scrim/70 backdrop-blur-sm p-3 sm:p-8 flex flex-col animate-rise" onClick={() => setShowModal(false)}>
+            <div className="flex items-center justify-between pb-2 text-white">
+              <span className="font-display font-bold truncate">{title}</span>
+              <button onClick={() => setShowModal(false)} aria-label="Tutup" className="p-2 rounded-full hover:bg-white/15 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 max-w-4xl w-full mx-auto rounded-2xl overflow-hidden bg-white" onClick={(e) => e.stopPropagation()}>
+              <iframe srcDoc={htmlOf()} title={title} sandbox="" className="w-full h-full border-0" />
             </div>
           </div>
         )}
@@ -837,37 +756,37 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
     0;
 
   return (
-    <div className="w-full my-3 bg-[#121419] border border-[#282d3a] rounded-[3px] overflow-hidden shadow-lg text-[#e2e5eb]">
+    <div className="w-full my-3 bg-raised border border-line rounded-lg overflow-hidden shadow-lg text-fg">
       {/* Top Header bar */}
-      <div className="px-3 py-2 flex items-center justify-between bg-[#151820] border-b border-[#232835] gap-2 flex-wrap">
+      <div className="px-3 py-2 flex items-center justify-between bg-raised border-b border-line gap-2 flex-wrap">
         <div
           onClick={() => setIsExpanded(!isExpanded)}
           className="flex items-center gap-2 cursor-pointer select-none group min-w-0"
         >
-          <span className="text-xs font-semibold text-[#f3f4f6] truncate">
+          <span className="text-xs font-semibold text-fg truncate">
             {artifact.files?.length || 0} files changed
           </span>
           <span className="text-xs font-mono font-medium shrink-0">
-            <span className="text-[#22c55e]">+{totalAdditions}</span>{" "}
-            <span className="text-[#ef4444]">-{totalDeletions}</span>
+            <span className="text-moss">+{totalAdditions}</span>{" "}
+            <span className="text-danger">-{totalDeletions}</span>
           </span>
-          <span className="text-[#757d90] group-hover:text-white transition-colors shrink-0">
+          <span className="text-fg-3 group-hover:text-fg transition-colors shrink-0">
             {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </span>
         </div>
 
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="px-2 py-1 text-xs font-mono bg-[#1d222c] hover:bg-[#282f3c] text-[#cbd5e1] hover:text-white border border-[#333c4d] rounded-[3px] flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer shrink-0"
+          className="px-2 py-1 text-xs font-mono bg-raised hover:bg-hover text-fg hover:text-fg border border-line-strong rounded-lg flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer shrink-0"
         >
-          <Code2 className="w-3.5 h-3.5 text-[#ea580c]" />
+          <Code2 className="w-3.5 h-3.5 text-accent" />
           <span>Review</span>
         </button>
       </div>
 
       {/* Files List */}
       {isExpanded && artifact.files && (
-        <div className="divide-y divide-[#1e232d]">
+        <div className="divide-y divide-line">
           {artifact.files.map((file, idx) => {
             const isSelected = selectedFile?.name === file.name;
             return (
@@ -875,24 +794,24 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
                 key={idx}
                 onClick={() => setSelectedFile(isSelected ? null : file)}
                 className={`px-3 py-2 flex items-center justify-between text-xs cursor-pointer transition-colors gap-2 ${
-                  isSelected ? "bg-[#1d2028]" : "hover:bg-[#181b22] bg-[#121419]"
+                  isSelected ? "bg-hover" : "hover:bg-raised bg-raised"
                 }`}
               >
                 {/* Left: Badge + filename + path */}
                 <div className="flex items-center gap-2 min-w-0 truncate">
                   {renderFileBadge(file)}
-                  <span className="font-mono font-semibold text-[#f3f4f6] truncate text-xs">
+                  <span className="font-mono font-semibold text-fg truncate text-xs">
                     {file.name}
                   </span>
-                  <span className="font-mono text-[#677083] text-[11px] truncate hidden md:inline">
+                  <span className="font-mono text-fg-3 text-[11px] truncate hidden md:inline">
                     {file.path}
                   </span>
                 </div>
 
                 {/* Right: +Add -Del count */}
                 <div className="flex items-center gap-1.5 font-mono text-[11px] shrink-0">
-                  <span className="text-[#22c55e]">+{file.additions}</span>
-                  <span className="text-[#ef4444]">-{file.deletions}</span>
+                  <span className="text-moss">+{file.additions}</span>
+                  <span className="text-danger">-{file.deletions}</span>
                 </div>
               </div>
             );
@@ -902,19 +821,19 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
 
       {/* Expanded Code Diff Viewer for selected file */}
       {isExpanded && selectedFile && selectedFile.content && (
-        <div className="p-3 bg-[#0c0e12] border-t border-[#232835] overflow-hidden">
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#1f2430] text-xs font-mono gap-2 flex-wrap">
-            <span className="text-[#a1a8b8] flex items-center gap-1.5 min-w-0 truncate">
-              <span className="text-[#ea580c] shrink-0">FILE:</span>
+        <div className="p-3 bg-base border-t border-line overflow-hidden">
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-line text-xs font-mono gap-2 flex-wrap">
+            <span className="text-fg-2 flex items-center gap-1.5 min-w-0 truncate">
+              <span className="text-accent shrink-0">FILE:</span>
               <span className="truncate">{selectedFile.path}</span>
             </span>
             <button
               onClick={() => handleCopyText(selectedFile.content || "")}
-              className="flex items-center gap-1 px-2 py-0.5 text-[11px] bg-[#191d26] hover:bg-[#232936] text-[#cbd5e1] border border-[#2e3544] rounded-[3px] transition-colors shrink-0 cursor-pointer"
+              className="flex items-center gap-1 px-2 py-0.5 text-[11px] bg-raised hover:bg-hover text-fg border border-line-strong rounded-lg transition-colors shrink-0 cursor-pointer"
             >
               {copied ? (
                 <>
-                  <Check className="w-3 h-3 text-[#10b981]" /> Tersalin
+                  <Check className="w-3 h-3 text-moss" /> Tersalin
                 </>
               ) : (
                 <>
@@ -924,7 +843,7 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
             </button>
           </div>
 
-          <pre className="p-3 bg-[#12141a] border border-[#1f2430] rounded-[3px] text-xs font-mono text-[#e2e8f0] overflow-x-auto max-h-64 scrollbar-thin leading-relaxed select-text min-w-0">
+          <pre className="p-3 bg-raised border border-line rounded-lg text-xs font-mono text-fg overflow-x-auto max-h-64 scrollbar-thin leading-relaxed select-text min-w-0">
             <code>{selectedFile.content}</code>
           </pre>
         </div>

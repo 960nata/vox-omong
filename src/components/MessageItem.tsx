@@ -3,7 +3,9 @@
 import React, { useState } from "react";
 import { Message } from "@/lib/types";
 import { ArtifactCard } from "./ArtifactCard";
-import { Volume2, VolumeX, Copy, Check, Bot, User, Maximize2, X } from "lucide-react";
+import { Logo } from "./Logo";
+import { MessageContent } from "./MessageContent";
+import { Volume2, VolumeX, Copy, Check, User, Maximize2, X } from "lucide-react";
 
 interface MessageItemProps {
   message: Message;
@@ -34,130 +36,98 @@ export function MessageItem({
   });
 
   return (
-    <div
-      className={`group relative flex gap-2.5 sm:gap-3 p-3 sm:p-3.5 rounded-[3px] border transition-colors min-w-0 ${
-        isAssistant
-          ? "bg-[#161820] border-[#252a36] text-[#e5e7eb]"
-          : "bg-[#1e1c1a] border-[#362e28] text-[#f3f4f6]"
-      }`}
-    >
-      {/* Role icon avatar */}
+    <div className={`chat-in group relative flex items-end gap-2.5 sm:gap-3 min-w-0 ${isAssistant ? "" : "flex-row-reverse"}`}>
+      {/* Avatar */}
+      {isAssistant ? (
+        <Logo active={isCurrentSpeaking} className="w-7 h-7 mb-6" />
+      ) : (
+        <div className="w-7 h-7 mb-6 shrink-0 rounded-full bg-accent text-white flex items-center justify-center" aria-hidden="true">
+          <User className="w-3.5 h-3.5" strokeWidth={1.75} />
+        </div>
+      )}
+
+      {/* Bubble */}
+      <div className={`min-w-0 flex flex-col ${isAssistant ? "flex-1 items-start" : "items-end max-w-[85%]"}`}>
       <div
-        className={`w-7 h-7 rounded-[3px] shrink-0 flex items-center justify-center text-xs font-mono border ${
+        className={`min-w-0 max-w-full px-3 sm:px-4 py-2.5 sm:py-3 text-[14px] [overflow-wrap:anywhere] leading-relaxed ${
           isAssistant
-            ? "bg-[#221c18] border-[#ea580c]/50 text-[#f97316]"
-            : "bg-[#222732] border-[#394254] text-[#9ca3af]"
+            ? "w-full bg-base text-fg rounded-[1.1rem] rounded-bl-md"
+            : "on-ink bg-ink rounded-[1.1rem] rounded-br-md"
         }`}
       >
-        {isAssistant ? <Bot className="w-4 h-4" /> : <User className="w-4 h-4" />}
-      </div>
-
-      {/* Message content */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between pb-1 text-[11px] font-mono">
-          <span className={isAssistant ? "text-[#f97316] font-semibold" : "text-[#d1d5db] font-semibold"}>
-            {isAssistant ? "VOX·AI" : "YOU"}
-          </span>
-          <span className="text-[#646d80] text-[10px]">{formattedTime}</span>
-        </div>
-
-        {/* Uploaded Image Preview if attached */}
+        {/* Lampiran gambar */}
         {message.imageUri && (
           <div className="my-2 inline-block relative group/img">
             <img
               src={message.imageUri}
               alt="Lampiran pengguna"
               onClick={() => setIsPreviewModalOpen(true)}
-              className="max-h-64 max-w-full rounded-[3px] border border-[#3b4356] object-cover cursor-pointer hover:border-[#ea580c] transition-colors"
+              className="max-h-32 max-w-[12rem] rounded-2xl border border-line object-cover cursor-zoom-in hover:border-accent transition-colors"
             />
             <button
               type="button"
               onClick={() => setIsPreviewModalOpen(true)}
               title="Perbesar gambar"
-              className="absolute bottom-2 right-2 p-1.5 bg-black/70 hover:bg-black text-white rounded-[2px] opacity-0 group-hover/img:opacity-100 transition-opacity"
+              aria-label="Perbesar gambar"
+              className="absolute bottom-2 right-2 p-1.5 bg-scrim/60 hover:bg-scrim text-white rounded-full opacity-0 group-hover/img:opacity-100 focus:opacity-100 transition-opacity"
             >
               <Maximize2 className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
 
-        {/* Text Body */}
-        <div className="text-sm leading-relaxed whitespace-pre-wrap select-text text-[#e2e5eb] break-words">
-          {message.content}
-        </div>
+        <MessageContent content={message.content} />
 
-        {/* Action / Execution Artifact Card */}
         {message.artifact && (
-          <div className="mt-2.5">
+          <div className="mt-3">
             <ArtifactCard artifact={message.artifact} />
           </div>
         )}
+        {message.artifacts?.map((a) => (
+          <div key={a.id} className="mt-3">
+            <ArtifactCard artifact={a} />
+          </div>
+        ))}
+      </div>
 
-        {/* Action buttons footer */}
-        <div className="mt-2.5 pt-2 border-t border-[#222733]/60 flex items-center gap-2">
+      {/* Meta + aksi di bawah bubble */}
+      <div className={`h-6 mt-1 px-1 flex items-center gap-2 text-[11px] text-fg-4 ${isAssistant ? "" : "flex-row-reverse"}`}>
+        <span className="font-mono text-[10px]">{isAssistant ? "vox.ai" : "kamu"} · {formattedTime}</span>
+        <div className="flex items-center gap-0.5 transition-opacity duration-500 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
           {isAssistant && (
             <button
-              onClick={() => {
-                if (isCurrentSpeaking) {
-                  onStopSpeaking();
-                } else {
-                  onSpeak(message.content);
-                }
-              }}
-              title={isCurrentSpeaking ? "Hentikan Suara" : "Dengarkan Jawaban"}
-              className={`flex items-center gap-1.5 px-2 py-1 text-[11px] font-mono rounded-[3px] border transition-colors ${
-                isCurrentSpeaking
-                  ? "bg-[#2b1f1a] border-[#ea580c] text-[#f97316] animate-pulse"
-                  : "bg-[#1c202a] border-[#2c3342] text-[#8e97aa] hover:text-[#f3f4f6] hover:border-[#3d4659]"
-              }`}
+              onClick={() => (isCurrentSpeaking ? onStopSpeaking() : onSpeak(message.content))}
+              title={isCurrentSpeaking ? "Hentikan suara" : "Dengarkan jawaban"}
+              aria-label={isCurrentSpeaking ? "Hentikan suara" : "Dengarkan jawaban"}
+              className={`lift grid place-items-center w-6 h-6 rounded-full cursor-pointer ${isCurrentSpeaking ? "bg-accent text-white" : "hover:text-fg hover:bg-hover"}`}
             >
-              {isCurrentSpeaking ? (
-                <>
-                  <VolumeX className="w-3 h-3 text-[#ea580c]" /> Hentikan
-                </>
-              ) : (
-                <>
-                  <Volume2 className="w-3 h-3 text-[#f97316]" /> Dengarkan
-                </>
-              )}
+              {isCurrentSpeaking ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" strokeWidth={1.5} />}
             </button>
           )}
-
-          <button
-            onClick={handleCopy}
-            title="Salin teks"
-            className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-mono bg-[#1c202a] border border-[#2c3342] text-[#8e97aa] hover:text-[#f3f4f6] hover:border-[#3d4659] rounded-[3px] transition-colors"
-          >
-            {copied ? (
-              <>
-                <Check className="w-3 h-3 text-[#10b981]" /> Tersalin
-              </>
-            ) : (
-              <>
-                <Copy className="w-3 h-3" /> Salin
-              </>
-            )}
+          <button onClick={handleCopy} title={copied ? "Tersalin" : "Salin teks"} aria-label="Salin teks" className="lift grid place-items-center w-6 h-6 rounded-full hover:text-fg hover:bg-hover cursor-pointer">
+            {copied ? <Check className="w-3.5 h-3.5 text-moss" /> : <Copy className="w-3.5 h-3.5" strokeWidth={1.5} />}
           </button>
         </div>
+      </div>
       </div>
 
       {/* Fullscreen Image Zoom Modal */}
       {isPreviewModalOpen && message.imageUri && (
         <div
           onClick={() => setIsPreviewModalOpen(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 cursor-zoom-out animate-fadeIn"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/70 backdrop-blur-sm p-4 cursor-zoom-out animate-rise"
         >
-          <div className="relative max-w-4xl max-h-[90vh] bg-[#111317] border border-[#2b3345] rounded-[3px] p-2">
+          <div className="relative max-w-4xl max-h-[90vh] bg-base border border-line-strong rounded-lg p-2">
             <button
               onClick={() => setIsPreviewModalOpen(false)}
-              className="absolute -top-3 -right-3 p-1.5 bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] shadow-lg"
+              className="absolute -top-3 -right-3 p-1.5 bg-accent hover:bg-accent-hi text-on-accent rounded-lg shadow-lg"
             >
               <X className="w-4 h-4" />
             </button>
             <img
               src={message.imageUri}
               alt="Preview Full"
-              className="max-h-[85vh] max-w-full rounded-[2px] object-contain"
+              className="max-h-[85vh] max-w-full rounded-md object-contain"
             />
           </div>
         </div>

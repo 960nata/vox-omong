@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # data & uploads
 /.data/
@@ -43,3 +44,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# jarvis-call (service telpon WA)
+jarvis-call/.env
+jarvis-call/.venv/
+.data/jarvis-tasks.json

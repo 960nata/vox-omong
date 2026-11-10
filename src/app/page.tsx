@@ -9,22 +9,29 @@ import { MessageItem } from "@/components/MessageItem";
 import { SettingsModal, NEURAL_VOICES } from "@/components/SettingsModal";
 import { RightWorkspacePanel, WorkspaceTab } from "@/components/RightWorkspacePanel";
 import { CoworkerCursorOperator } from "@/components/CoworkerCursorOperator";
+import { Logo } from "@/components/Logo";
+import { Btn, ArrowIcon } from "@/components/Btn";
+import { WebsiteStudio } from "@/components/WebsiteStudio";
 import { AcousticBackground } from "@/components/AcousticBackground";
+import { ChatBackground } from "@/components/ChatBackground";
 import { playJarvisSound } from "@/lib/jarvisSounds";
 import {
   Menu,
+  Mic,
   Settings as SettingsIcon,
-  Volume2,
   Zap,
   Terminal,
   GitBranch,
   HardDrive,
   Globe,
   PanelRight,
+  Sun,
+  Moon,
 } from "lucide-react";
+import { useTheme } from "@/lib/theme";
 
 const DEFAULT_SETTINGS: VoiceSettings = {
-  apiKey: "aigw_51d115a24f09241184a426302c08879e",
+  apiKey: "", // kosong = server memakai AI_GATEWAY_KEY dari .env.local
   language: "id-ID",
   ttsProvider: "neural",
   neuralVoice: "id-ID-GadisNeural",
@@ -34,10 +41,11 @@ const DEFAULT_SETTINGS: VoiceSettings = {
   autoSpeak: true,
   systemPrompt: "",
   jarvisMode: true,
-  silenceTimeoutMs: 2200,
+  silenceTimeoutMs: 1200,
 };
 
 export default function VoiceAiStudio() {
+  const { resolved: theme, setTheme } = useTheme();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -46,6 +54,7 @@ export default function VoiceAiStudio() {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingLabel, setProcessingLabel] = useState("Lagi mikir…");
   const [liveTranscript, setLiveTranscript] = useState("");
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const [jarvisMode, setJarvisMode] = useState(true);
@@ -58,12 +67,23 @@ export default function VoiceAiStudio() {
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("preview");
   const [previewUrl, setPreviewUrl] = useState("/api/preview?projectId=default-workspace");
   const [activeProjectId, setActiveProjectId] = useState("default-workspace");
+  const activeProjectIdRef = useRef(activeProjectId);
+  useEffect(() => {
+    activeProjectIdRef.current = activeProjectId;
+  }, [activeProjectId]);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   // Window viewport width & adaptive layout management
-  const [windowWidth, setWindowWidth] = useState<number>(
-    typeof window !== "undefined" ? window.innerWidth : 1280
-  );
+  // Mulai dari nilai tetap agar render server & client sama (hindari hydration mismatch)
+  const [windowWidth, setWindowWidth] = useState<number>(1280);
+
+  // Di HP, buka dengan chat penuh: sidebar & panel workspace ditutup dulu
+  useEffect(() => {
+    if (window.innerWidth < 768) {
+      setIsRightPanelOpen(false);
+      setIsSidebarOpen(false);
+    }
+  }, []);
 
   useEffect(() => {
     const handleResize = () => {
@@ -101,12 +121,26 @@ export default function VoiceAiStudio() {
   const isSpeakingRef = useRef<boolean>(false);
   const isProcessingRef = useRef<boolean>(false);
   const jarvisModeRef = useRef<boolean>(true);
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const wantListeningRef = useRef<boolean>(false);
 
   activeConvRef.current = activeConvId;
   settingsRef.current = settings;
   isSpeakingRef.current = isSpeaking;
   isProcessingRef.current = isProcessing;
   jarvisModeRef.current = jarvisMode;
+
+  // Kartu website di chat bisa minta panel Preview dibuka
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const url = (e as CustomEvent<{ url?: string }>).detail?.url;
+      if (url) setPreviewUrl(url);
+      setIsRightPanelOpen(true);
+      setWorkspaceTab("preview");
+    };
+    window.addEventListener("vox_open_preview", onOpen);
+    return () => window.removeEventListener("vox_open_preview", onOpen);
+  }, []);
 
   // Load saved settings from localStorage
   useEffect(() => {
@@ -117,8 +151,12 @@ export default function VoiceAiStudio() {
         setSettings({
           ...DEFAULT_SETTINGS,
           ...parsed,
+          // prompt tambahan berlaku per sesi: tidak pernah dipulihkan dari sesi sebelumnya
+          systemPrompt: "",
           ttsProvider: parsed.ttsProvider || "neural",
           neuralVoice: parsed.neuralVoice || "id-ID-GadisNeural",
+          // default lama 2.2 detik terasa lambat → pakai 1.2 detik
+          silenceTimeoutMs: !parsed.silenceTimeoutMs || parsed.silenceTimeoutMs === 2200 ? 1200 : parsed.silenceTimeoutMs,
         });
         if (typeof parsed.jarvisMode === "boolean") {
           setJarvisMode(parsed.jarvisMode);
@@ -133,7 +171,8 @@ export default function VoiceAiStudio() {
   const handleSaveSettings = (newSettings: VoiceSettings) => {
     setSettings(newSettings);
     try {
-      localStorage.setItem("vox_ai_settings", JSON.stringify(newSettings));
+      // prompt tambahan sesi tidak disimpan permanen
+      localStorage.setItem("vox_ai_settings", JSON.stringify({ ...newSettings, systemPrompt: "" }));
     } catch (e) {
       console.warn("Could not save settings to localStorage", e);
     }
@@ -198,25 +237,75 @@ export default function VoiceAiStudio() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, liveTranscript]);
 
+
+  // ---- Suara: diputar kalimat per kalimat (streaming + prefetch) supaya terasa seperti ngobrol
+  const fillerAudioRef = useRef<HTMLAudioElement | null>(null);
+  const prefetchedRef = useRef<HTMLAudioElement[]>([]);
+
+  const ttsUrl = (text: string) =>
+    `/api/tts?${new URLSearchParams({
+      text,
+      voice: settingsRef.current.neuralVoice || "id-ID-GadisNeural",
+      rate: String(settingsRef.current.rate || 1),
+      pitch: String(settingsRef.current.pitch || 1),
+    })}`;
+
+  const FILLERS_QUICK = ["Oke, bentar ya.", "Hmm, oke.", "Siap, aku cek dulu.", "Oke, sebentar."];
+  const FILLERS_WORK = ["Siap, aku kerjain sekarang. Tunggu sebentar ya.", "Oke, tim AI-nya lagi rapat dulu. Bentar ya."];
+
+  // Panaskan cache audio pengisi supaya bisa diputar instan
+  useEffect(() => {
+    if (settings.ttsProvider !== "neural") return;
+    [...FILLERS_QUICK, ...FILLERS_WORK].forEach((f) => {
+      fetch(ttsUrl(f)).catch(() => {});
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.neuralVoice, settings.rate, settings.pitch, settings.ttsProvider]);
+
+  /** Respons instan "oke, bentar ya" sementara AI berpikir. */
+  const playFiller = (heavy: boolean) => {
+    if (settingsRef.current.ttsProvider !== "neural" || !settingsRef.current.autoSpeak) return;
+    const pool = heavy ? FILLERS_WORK : FILLERS_QUICK;
+    const a = new Audio(ttsUrl(pool[Math.floor(Math.random() * pool.length)]));
+    fillerAudioRef.current = a;
+    a.onended = () => {
+      if (fillerAudioRef.current === a) fillerAudioRef.current = null;
+    };
+    a.play().catch(() => {});
+  };
+
+  const waitForFiller = () =>
+    new Promise<void>((resolve) => {
+      const a = fillerAudioRef.current;
+      if (!a || a.paused || a.ended) return resolve();
+      const done = () => resolve();
+      a.addEventListener("ended", done, { once: true });
+      a.addEventListener("error", done, { once: true });
+      setTimeout(done, 3000);
+    });
+
   // Stop currently playing audio or speech synthesis
   const stopSpeaking = () => {
-    // 1. Invalidate current speech session to prevent race conditions & double-voice
     speechSessionIdRef.current++;
 
-    // 2. Abort any in-flight /api/tts request
     if (ttsAbortControllerRef.current) {
       ttsAbortControllerRef.current.abort();
       ttsAbortControllerRef.current = null;
     }
-
-    // 3. Pause & reset current audio element
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
-      currentAudioRef.current.currentTime = 0;
       currentAudioRef.current = null;
     }
+    if (fillerAudioRef.current) {
+      fillerAudioRef.current.pause();
+      fillerAudioRef.current = null;
+    }
+    prefetchedRef.current.forEach((a) => {
+      a.pause();
+      a.removeAttribute("src");
+    });
+    prefetchedRef.current = [];
 
-    // 4. Cancel browser speech synthesis
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
@@ -225,122 +314,102 @@ export default function VoiceAiStudio() {
     isSpeakingRef.current = false;
   };
 
-  // Speak text using Microsoft Edge Neural TTS or Browser Speech (Double-Voice Free & Ultra-Fast)
-  const speakText = async (text: string) => {
+  const resumeHandsFree = () => {
+    if (jarvisModeRef.current && !isProcessingRef.current) {
+      setTimeout(() => {
+        playJarvisSound("listen");
+        startListening();
+      }, 250);
+    }
+  };
+
+  /** Pecah jawaban jadi kalimat; kalimat pendek digabung supaya intonasi natural. */
+  const splitSentences = (text: string) => {
+    const raw = text.split(/(?<=[.!?…])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
+    const out: string[] = [];
+    for (const r of raw) {
+      if (out.length && (out[out.length - 1].length < 40 || r.length < 12)) out[out.length - 1] += " " + r;
+      else out.push(r);
+    }
+    // batasi supaya jawaban panjang tidak dibacakan semuanya
+    let total = 0;
+    return out.filter((x) => (total += x.length) <= 650 || x === out[0]);
+  };
+
+  const speakText = async (text: string, opts: { afterFiller?: boolean } = {}) => {
+    if (opts.afterFiller) await waitForFiller();
     stopSpeaking();
     if (!text || !text.trim()) return;
 
-    // Filter out code blocks and data URLs from speech
     const cleanSpeech = text
-      .replace(/```[\s\S]*?```/g, "Kode program telah siap ditampilkan.")
+      .replace(/```[\s\S]*?```/g, " Kodenya udah aku tampilkan di layar. ")
       .replace(/https?:\/\/\S+/g, "tautan")
-      .replace(/[*#_~`]/g, "")
+      .replace(/[*#_~`>|]/g, "")
+      .replace(/\s+/g, " ")
       .trim();
-
     if (!cleanSpeech) return;
 
-    // Allocate session ID for this utterance
     const currentSessionId = ++speechSessionIdRef.current;
 
-    // LATENCY OPTIMIZATION: For fast verbal response, take first 1-2 core sentences
-    // if the response is lengthy, so the audio starts playing in <300ms!
-    const sentences = cleanSpeech.split(/(?<=[.!?])\s+/);
-    const spokenText =
-      sentences.length > 1 && cleanSpeech.length > 150
-        ? (sentences[0] + " " + (sentences[1] || "")).slice(0, 180).trim()
-        : cleanSpeech.slice(0, 250).trim();
-
-    // 1. Try Microsoft Edge Neural TTS First
+    // 1. Edge Neural TTS: antrean kalimat, kalimat berikutnya di-prefetch selagi kalimat sekarang diputar
     if (settingsRef.current.ttsProvider === "neural") {
-      try {
-        setIsSpeaking(true);
-        isSpeakingRef.current = true;
+      const sentences = splitSentences(cleanSpeech);
+      const make = (k: number) => {
+        const a = new Audio(ttsUrl(sentences[k]));
+        a.preload = "auto";
+        prefetchedRef.current.push(a);
+        return a;
+      };
+      const audios: (HTMLAudioElement | undefined)[] = [];
+      audios[0] = make(0);
+      if (sentences.length > 1) audios[1] = make(1);
 
-        const controller = new AbortController();
-        ttsAbortControllerRef.current = controller;
+      setIsSpeaking(true);
+      isSpeakingRef.current = true;
 
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
-            text: spokenText,
-            voice: settingsRef.current.neuralVoice || "id-ID-GadisNeural",
-            rate: settingsRef.current.rate || 1.05,
-            pitch: settingsRef.current.pitch || 1.0,
-          }),
+      const finish = () => {
+        if (speechSessionIdRef.current !== currentSessionId) return;
+        setIsSpeaking(false);
+        isSpeakingRef.current = false;
+        currentAudioRef.current = null;
+        prefetchedRef.current = [];
+        resumeHandsFree();
+      };
+
+      const playAt = (k: number): Promise<boolean> =>
+        new Promise((resolve) => {
+          if (speechSessionIdRef.current !== currentSessionId) return resolve(false);
+          const a = audios[k] || (audios[k] = make(k));
+          if (k + 1 < sentences.length && !audios[k + 1]) audios[k + 1] = make(k + 1);
+          currentAudioRef.current = a;
+          a.onended = () => resolve(true);
+          a.onerror = () => resolve(k > 0); // kalimat pertama gagal → pakai suara browser
+          a.play().catch(() => resolve(k > 0));
         });
 
-        // Ensure session hasn't been interrupted while fetching
+      for (let k = 0; k < sentences.length; k++) {
+        const ok = await playAt(k);
         if (speechSessionIdRef.current !== currentSessionId) return;
-
-        if (res.ok) {
-          const blob = await res.blob();
-          if (speechSessionIdRef.current !== currentSessionId) return;
-
-          const audioUrl = URL.createObjectURL(blob);
-          const audio = new Audio(audioUrl);
-          currentAudioRef.current = audio;
-
-          audio.onended = () => {
-            if (speechSessionIdRef.current === currentSessionId) {
-              setIsSpeaking(false);
-              isSpeakingRef.current = false;
-              currentAudioRef.current = null;
-              URL.revokeObjectURL(audioUrl);
-
-              // JARVIS Continuous Loop: auto resume listening if hands-free is enabled
-              if (jarvisModeRef.current && !isProcessingRef.current) {
-                setTimeout(() => {
-                  playJarvisSound("listen");
-                  startListening();
-                }, 350);
-              }
-            }
-          };
-
-          audio.onerror = () => {
-            if (speechSessionIdRef.current === currentSessionId) {
-              setIsSpeaking(false);
-              isSpeakingRef.current = false;
-              currentAudioRef.current = null;
-              URL.revokeObjectURL(audioUrl);
-            }
-          };
-
-          await audio.play();
-          return;
-        }
-      } catch (err: any) {
-        if (err.name !== "AbortError") {
-          console.warn("Neural TTS request failed, falling back to browser synthesis:", err);
-        } else {
-          return; // Intentionally aborted
-        }
+        if (!ok && k === 0) break; // jatuh ke fallback di bawah
+        if (k === sentences.length - 1) return finish();
       }
+      if (speechSessionIdRef.current !== currentSessionId) return;
     }
 
-    // 2. Fallback to Browser SpeechSynthesis
+    // 2. Fallback: SpeechSynthesis bawaan browser
     if (typeof window === "undefined" || !window.speechSynthesis) {
       setIsSpeaking(false);
       isSpeakingRef.current = false;
       return;
     }
-
-    if (speechSessionIdRef.current !== currentSessionId) return;
-
-    const utterance = new SpeechSynthesisUtterance(spokenText);
+    const utterance = new SpeechSynthesisUtterance(cleanSpeech.slice(0, 650));
     utterance.lang = settingsRef.current.language;
     utterance.rate = settingsRef.current.rate || 1.0;
     utterance.pitch = settingsRef.current.pitch || 1.0;
-
     if (settingsRef.current.voiceURI) {
-      const matched = availableVoices.find(
-        (v) => v.voiceURI === settingsRef.current.voiceURI
-      );
+      const matched = availableVoices.find((v) => v.voiceURI === settingsRef.current.voiceURI);
       if (matched) utterance.voice = matched;
     }
-
     utterance.onstart = () => {
       if (speechSessionIdRef.current === currentSessionId) {
         setIsSpeaking(true);
@@ -351,14 +420,7 @@ export default function VoiceAiStudio() {
       if (speechSessionIdRef.current === currentSessionId) {
         setIsSpeaking(false);
         isSpeakingRef.current = false;
-
-        // JARVIS Continuous Loop: auto resume listening
-        if (jarvisModeRef.current && !isProcessingRef.current) {
-          setTimeout(() => {
-            playJarvisSound("listen");
-            startListening();
-          }, 350);
-        }
+        resumeHandsFree();
       }
     };
     utterance.onerror = () => {
@@ -367,18 +429,36 @@ export default function VoiceAiStudio() {
         isSpeakingRef.current = false;
       }
     };
-
     window.speechSynthesis.speak(utterance);
   };
 
   // Send message to backend
-  const handleSendMessage = async (text: string, imageUri?: string, dataUri?: string) => {
+  const handleSendMessage = async (text: string, imageUri?: string, dataUri?: string, fromVoice = false) => {
     if (!text.trim() || isProcessing) return;
 
     stopSpeaking();
     setIsProcessing(true);
     isProcessingRef.current = true;
     setLiveTranscript("");
+    if (fromVoice) {
+      playFiller(/web|landing|halaman|dashboard|aplikasi|app|game|slide|presentasi|dokumen|laporan|proposal|invoice|tabel|ubah|ganti|tambah/i.test(text));
+    }
+    {
+      const q = text.toLowerCase();
+      setProcessingLabel(
+        /slide|presentasi|ppt|pitch/.test(q)
+          ? "Lagi nyusun slide presentasi… (±20–40 detik)"
+          : /invoice|tagihan|faktur/.test(q)
+            ? "Lagi bikin invoice…"
+            : /excel|spreadsheet|tabel|csv|cashflow/.test(q)
+              ? "Lagi nyusun tabel…"
+              : /dokumen|laporan|proposal|surat|pdf|artikel/.test(q)
+                ? "Lagi nulis dokumen… (±20–40 detik)"
+                : /web|landing|halaman|dashboard|aplikasi|app|game|kalkulator|ubah|ganti|tambah/.test(q)
+                  ? "Lagi nulis kode website… (±20–60 detik)"
+                  : "Lagi mikir…"
+      );
+    }
 
     const cleanQuery = text.toLowerCase().trim();
 
@@ -487,6 +567,23 @@ export default function VoiceAiStudio() {
           data.assistantMessage,
         ]);
 
+        // Website baru → buka full page. Kalau user minta lihat kode/struktur, langsung tab Kode.
+        const art = data.assistantMessage.artifact;
+        if (art?.type === "website" && art.website) {
+          const wantCode = /\b(kode|code|struktur|file|source)\b/i.test(text);
+          window.dispatchEvent(new CustomEvent("vox_open_studio", { detail: { artifact: art, tab: wantCode ? "code" : "preview" } }));
+        }
+
+        // Project dibuat/dibuka lewat suara atau teks: jadikan aktif dan tampilkan isinya
+        if (typeof data.projectId === "string" && data.projectId !== activeProjectIdRef.current) {
+          setActiveProjectId(data.projectId);
+        }
+        if (data.projectAction === "created" || data.projectAction === "opened") {
+          setPreviewUrl(`/api/preview?projectId=${encodeURIComponent(data.projectId)}&t=${Date.now()}`);
+          setIsRightPanelOpen(true);
+          setWorkspaceTab(data.projectAction === "created" ? "explorer" : "preview");
+        }
+
         // If folder created, switch to explorer tab
         if (data.createdFolder) {
           setIsRightPanelOpen(true);
@@ -502,7 +599,7 @@ export default function VoiceAiStudio() {
 
         // Auto speak if enabled
         if (settingsRef.current.autoSpeak) {
-          speakText(data.assistantMessage.content);
+          speakText(data.assistantMessage.content, { afterFiller: fromVoice });
         }
 
         // Refresh conversation list to update titles/timestamps
@@ -529,8 +626,9 @@ export default function VoiceAiStudio() {
 
     // 1. Acquire microphone stream for real-time visualizer
     try {
-      if (!audioStream) {
+      if (!audioStreamRef.current) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioStreamRef.current = stream;
         setAudioStream(stream);
       }
     } catch (err) {
@@ -557,13 +655,15 @@ export default function VoiceAiStudio() {
     recognition.continuous = true; // JARVIS: Continuous listening, DO NOT abort on micro-pauses!
     recognition.interimResults = true;
 
+    wantListeningRef.current = true;
+
     recognition.onstart = () => {
       setIsListening(true);
       setLiveTranscript("");
     };
 
     // VAD Silence Timeout: 2.2 seconds allows the user to pause, breathe, or think without premature cutoff
-    const SILENCE_THRESHOLD_MS = settingsRef.current.silenceTimeoutMs || 2200;
+    const SILENCE_THRESHOLD_MS = settingsRef.current.silenceTimeoutMs || 1200;
 
     recognition.onresult = (event: any) => {
       // Natural Barge-In: if JARVIS is talking while user speaks, interrupt immediately!
@@ -604,7 +704,7 @@ export default function VoiceAiStudio() {
             playJarvisSound("sent");
             stopListening();
             transcriptAccumulatorRef.current = "";
-            handleSendMessage(candidate);
+            handleSendMessage(candidate, undefined, undefined, true);
           }
         }, SILENCE_THRESHOLD_MS);
       }
@@ -619,7 +719,8 @@ export default function VoiceAiStudio() {
 
     recognition.onend = () => {
       // In JARVIS continuous mode, auto-restart if still listening and not processing
-      if (isListening && !isProcessingRef.current) {
+      // (state `isListening` di closure ini selalu basi, jadi pakai ref)
+      if (wantListeningRef.current && recognitionRef.current === recognition && !isProcessingRef.current) {
         try {
           recognition.start();
         } catch {}
@@ -637,6 +738,7 @@ export default function VoiceAiStudio() {
   };
 
   const stopListening = () => {
+    wantListeningRef.current = false;
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
@@ -647,10 +749,11 @@ export default function VoiceAiStudio() {
       } catch {}
       recognitionRef.current = null;
     }
-    if (audioStream) {
-      audioStream.getTracks().forEach((track) => track.stop());
-      setAudioStream(null);
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((track) => track.stop());
+      audioStreamRef.current = null;
     }
+    setAudioStream(null);
     setIsListening(false);
   };
 
@@ -675,6 +778,8 @@ export default function VoiceAiStudio() {
         setConversations((prev) => [data.conversation, ...prev]);
         setActiveConvId(data.conversation.id);
         setMessages([]);
+        // sesi baru = mulai kosong: prompt tambahan dari sesi sebelumnya dibuang
+        setSettings((s) => ({ ...s, systemPrompt: "" }));
       }
     } catch (err) {
       console.error("Failed to create new conversation:", err);
@@ -701,149 +806,128 @@ export default function VoiceAiStudio() {
   };
 
   return (
-    <div className="relative flex flex-col h-screen w-screen bg-[#07080c] text-[#f3f4f6] font-sans overflow-hidden antialiased">
+    <div className="relative flex flex-col h-dvh w-full bg-canvas text-fg font-sans overflow-hidden antialiased">
       {/* Live Interactive Acoustic Background Animation */}
       <AcousticBackground isListening={isListening} isSpeaking={isSpeaking} />
 
-      {/* Global Top Header Bar (Full width across the entire app - Never split by preview!) */}
-      <header className="h-14 w-full border-b border-[#232834] bg-[#0c0e14]/90 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between shrink-0 z-30">
-        <div className="flex items-center gap-3">
+      {/* Header — gaya nav studio: wordmark, link teks bergaris, status, CTA pill */}
+      <header className="h-14 w-full border-b border-line bg-canvas/85 backdrop-blur-xl px-3 sm:px-5 flex items-center justify-between gap-2 shrink-0 z-30">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className={`p-2 rounded-[3px] border transition-colors cursor-pointer ${
-              isSidebarOpen
-                ? "bg-[#25211e] border-[#ea580c]/60 text-[#f97316]"
-                : "bg-[#161922] hover:bg-[#1f2430] text-[#9ca3af] hover:text-[#f3f4f6] border-[#293040]"
-            }`}
-            title={isSidebarOpen ? "Sembunyikan Sidebar Sesi" : "Tampilkan Sidebar Sesi"}
+            aria-pressed={isSidebarOpen}
+            className="icon-btn"
+            title={isSidebarOpen ? "Sembunyikan riwayat sesi" : "Tampilkan riwayat sesi"}
+            aria-label="Riwayat sesi"
           >
-            <Menu className="w-4 h-4" />
+            <Menu className="w-4 h-4" strokeWidth={1.5} />
           </button>
-
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-[1px] bg-[#ea580c] ring-2 ring-[#ea580c]/30 animate-pulse" />
-            <h1 className="text-sm font-semibold tracking-wider font-mono text-[#f3f4f6]">
-              VOX·AI <span className="text-[#ea580c] text-xs font-normal">STUDIO</span>
+          <div className="flex items-center gap-2 min-w-0 select-none">
+            <Logo active={isListening || isSpeaking || isProcessing} className="w-7 h-7" />
+            <h1 className="text-[15px] font-semibold tracking-[-0.02em] text-fg leading-none">
+              vox<span className="text-accent">.</span>ai
             </h1>
           </div>
-
-          {/* JARVIS Mode Badge */}
-          {jarvisMode && (
-            <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 bg-[#142338] border border-[#38bdf8]/60 rounded-[3px] text-[10px] font-mono text-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.2)]">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#38bdf8] animate-ping" />
-              <span>JARVIS ACTIVE</span>
-            </div>
-          )}
         </div>
 
-        {/* Quick Tools & Right Panel Toggles — ICON ONLY */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Website Preview Icon Button */}
-          <button
-            onClick={() => {
-              if (isRightPanelOpen && workspaceTab === "preview") {
-                setIsRightPanelOpen(false);
-              } else {
-                setIsRightPanelOpen(true);
-                setWorkspaceTab("preview");
-              }
-            }}
-            className={`p-2 rounded-[3px] border transition-colors cursor-pointer ${
-              isRightPanelOpen && workspaceTab === "preview"
-                ? "bg-[#182635] border-[#38bdf8] text-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.25)]"
-                : "bg-[#161922] hover:bg-[#202532] text-[#8e98aa] hover:text-[#f3f4f6] border-[#293040]"
-            }`}
-            title="Website Preview"
-          >
-            <Globe className="w-4 h-4 text-[#38bdf8]" />
-          </button>
+        {/* Nav teks (desktop) */}
+        <nav aria-label="Workspace" className="hidden md:flex items-center gap-7 text-[13px]">
+          {(
+            [
+              { tab: "preview", label: "Preview" },
+              { tab: "explorer", label: "File" },
+              { tab: "terminal", label: "Terminal" },
+              { tab: "deploy", label: "Deploy" },
+            ] as { tab: WorkspaceTab; label: string }[]
+          ).map(({ tab, label }) => {
+            const active = isRightPanelOpen && workspaceTab === tab;
+            return (
+              <button
+                key={tab}
+                onClick={() => {
+                  if (active) setIsRightPanelOpen(false);
+                  else {
+                    setIsRightPanelOpen(true);
+                    setWorkspaceTab(tab);
+                  }
+                }}
+                aria-pressed={active}
+                className="nav-link cursor-pointer"
+              >
+                {label}
+              </button>
+            );
+          })}
+        </nav>
 
-          {/* Project File Explorer Icon Button */}
-          <button
-            onClick={() => {
-              if (isRightPanelOpen && workspaceTab === "explorer") {
-                setIsRightPanelOpen(false);
-              } else {
-                setIsRightPanelOpen(true);
-                setWorkspaceTab("explorer");
-              }
-            }}
-            className={`p-2 rounded-[3px] border transition-colors cursor-pointer ${
-              isRightPanelOpen && workspaceTab === "explorer"
-                ? "bg-[#252016] border-[#fbbf24] text-[#fbbf24] shadow-[0_0_8px_rgba(251,191,36,0.25)]"
-                : "bg-[#161922] hover:bg-[#202532] text-[#8e98aa] hover:text-[#f3f4f6] border-[#293040]"
-            }`}
-            title="Folder Project Explorer"
-          >
-            <HardDrive className="w-4 h-4 text-[#fbbf24]" />
-          </button>
+        <div className="flex items-center gap-1 sm:gap-1.5">
+          {/* Ikon workspace (mobile) */}
+          <div className="flex md:hidden items-center">
+            {(
+              [
+                { tab: "preview", label: "Preview website", Icon: Globe },
+                { tab: "explorer", label: "File project", Icon: HardDrive },
+                { tab: "terminal", label: "Terminal", Icon: Terminal },
+                { tab: "deploy", label: "Deploy", Icon: Zap },
+              ] as { tab: WorkspaceTab; label: string; Icon: typeof Globe }[]
+            ).map(({ tab, label, Icon }) => {
+              const active = isRightPanelOpen && workspaceTab === tab;
+              return (
+                <button
+                  key={tab}
+                  onClick={() => {
+                    if (active) setIsRightPanelOpen(false);
+                    else {
+                      setIsRightPanelOpen(true);
+                      setWorkspaceTab(tab);
+                    }
+                  }}
+                  aria-pressed={active}
+                  title={label}
+                  aria-label={label}
+                  className="icon-btn"
+                >
+                  <Icon className="w-4 h-4" strokeWidth={1.5} />
+                </button>
+              );
+            })}
+          </div>
 
-          {/* Developer Terminal Icon Button */}
-          <button
-            onClick={() => {
-              if (isRightPanelOpen && workspaceTab === "terminal") {
-                setIsRightPanelOpen(false);
-              } else {
-                setIsRightPanelOpen(true);
-                setWorkspaceTab("terminal");
-              }
-            }}
-            className={`p-2 rounded-[3px] border transition-colors cursor-pointer ${
-              isRightPanelOpen && workspaceTab === "terminal"
-                ? "bg-[#14231b] border-[#10b981] text-[#34d399] shadow-[0_0_8px_rgba(16,185,129,0.25)]"
-                : "bg-[#161922] hover:bg-[#202532] text-[#8e98aa] hover:text-[#f3f4f6] border-[#293040]"
-            }`}
-            title="Developer Terminal"
-          >
-            <Terminal className="w-4 h-4 text-[#10b981]" />
-          </button>
+          {jarvisMode && (
+            <span
+              className="hidden lg:inline-flex items-center gap-2 h-8 px-3 rounded-full text-[11px] font-medium tracking-[0.04em] text-fg-2 shadow-[inset_0_0_0_1px_var(--line)]"
+              title="Mode hands-free: mic otomatis nyala lagi setelah AI selesai ngomong"
+            >
+              <span className="pulse-dot" /> Hands-free
+            </span>
+          )}
 
-          {/* Auto Deploy (GitHub & Vercel) Icon Button */}
           <button
-            onClick={() => {
-              if (isRightPanelOpen && workspaceTab === "deploy") {
-                setIsRightPanelOpen(false);
-              } else {
-                setIsRightPanelOpen(true);
-                setWorkspaceTab("deploy");
-              }
-            }}
-            className={`p-2 rounded-[3px] border transition-colors cursor-pointer ${
-              isRightPanelOpen && workspaceTab === "deploy"
-                ? "bg-[#291b15] border-[#ea580c] text-[#f97316] shadow-[0_0_8px_rgba(234,88,12,0.25)]"
-                : "bg-[#161922] hover:bg-[#202532] text-[#8e98aa] hover:text-[#f3f4f6] border-[#293040]"
-            }`}
-            title="Auto Sync GitHub & Vercel Deploy"
+            onClick={(e) => setTheme(theme === "dark" ? "light" : "dark", { x: e.clientX, y: e.clientY })}
+            className="icon-btn relative overflow-hidden"
+            title={theme === "dark" ? "Ganti ke mode terang" : "Ganti ke mode gelap"}
+            aria-label={theme === "dark" ? "Mode terang" : "Mode gelap"}
           >
-            <Zap className="w-4 h-4 text-[#ea580c]" />
+            <Sun
+              strokeWidth={1.5}
+              className={`w-4 h-4 transition-all duration-700 ${theme === "dark" ? "rotate-90 scale-0 opacity-0" : "rotate-0 scale-100 opacity-100"}`}
+            />
+            <Moon
+              strokeWidth={1.5}
+              className={`w-4 h-4 absolute inset-0 m-auto transition-all duration-700 ${theme === "dark" ? "rotate-0 scale-100 opacity-100" : "-rotate-90 scale-0 opacity-0"}`}
+            />
           </button>
-
-          {/* Settings Icon Button */}
-          <button
-            onClick={() => setIsSettingsOpen(true)}
-            className="p-2 bg-[#161922] hover:bg-[#202532] text-[#8e98aa] hover:text-[#f3f4f6] border border-[#293040] rounded-[3px] transition-colors cursor-pointer"
-            title="Pengaturan Studio (Model, Suara, API)"
-          >
-            <SettingsIcon className="w-4 h-4 text-[#ea580c]" />
+          <button onClick={() => setIsSettingsOpen(true)} className="icon-btn group" title="Pengaturan (model, suara, API)" aria-label="Pengaturan">
+            <SettingsIcon strokeWidth={1.5} className="w-4 h-4 transition-transform duration-700 group-hover:rotate-90" />
           </button>
-
-          {/* Toggle Panel Right Visibility Icon Button */}
-          <button
-            onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
-            className={`p-2 rounded-[3px] border transition-colors cursor-pointer ${
-              isRightPanelOpen
-                ? "bg-[#25211e] border-[#ea580c]/60 text-[#f97316]"
-                : "bg-[#161922] hover:bg-[#202532] text-[#8e98aa] border-[#293040]"
-            }`}
-            title={isRightPanelOpen ? "Tutup Panel Workspace" : "Buka Panel Workspace"}
-          >
-            <PanelRight className="w-4 h-4" />
-          </button>
+          <Btn size="sm" onClick={handleNewConversation} className="hidden sm:inline-flex ml-1">
+            Sesi baru
+          </Btn>
         </div>
       </header>
 
       {/* Main Studio Workspace Row (Under unbroken global navbar) */}
-      <div className="flex-1 flex w-full h-[calc(100vh-3.5rem)] overflow-hidden relative z-10 min-w-0">
+      <div className="flex-1 flex w-full h-[calc(100dvh-3.5rem)] overflow-hidden relative z-10 min-w-0">
         {/* Sidebar: Conversation history */}
         <ConversationSidebar
           isOpen={isSidebarOpen}
@@ -852,6 +936,7 @@ export default function VoiceAiStudio() {
           activeId={activeConvId}
           onSelect={(id) => {
             setActiveConvId(id);
+            setSettings((s) => (s.systemPrompt ? { ...s, systemPrompt: "" } : s));
             if (isSidebarDrawer) setIsSidebarOpen(false);
           }}
           onNew={handleNewConversation}
@@ -860,27 +945,95 @@ export default function VoiceAiStudio() {
         />
 
         {/* Central Workspace (Chat Area - Responsive Fluid Grid) */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden bg-radial from-[#151821]/85 via-[#0d0f13]/90 to-[#08090d]/95 min-w-0">
-          <div className="flex-1 flex flex-col p-2 sm:p-3 md:p-4 overflow-hidden gap-2 sm:gap-3 w-full max-w-5xl mx-auto min-w-0 transition-all">
+        <main className="relative flex-1 flex flex-col h-full overflow-hidden min-w-0">
+          <ChatBackground isListening={isListening} isSpeaking={isSpeaking} isProcessing={isProcessing} />
+          <div className="relative z-10 flex-1 flex flex-col px-3 sm:px-6 pt-3 pb-3 overflow-hidden gap-3 w-full max-w-4xl mx-auto min-w-0">
           {/* Top Audio Waveform Monitor */}
+          {(messages.length > 0 || isListening || isSpeaking || isProcessing) && (
           <VoiceVisualizer
             isListening={isListening}
             isSpeaking={isSpeaking}
             isProcessing={isProcessing}
             audioStream={audioStream}
           />
+          )}
 
           {/* Chat Message Stream */}
-          <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin rounded-[3px]">
+          <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden space-y-5 px-1">
             {messages.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center p-6 text-[#5b6477]">
-                <Volume2 className="w-10 h-10 mb-3 text-[#ea580c]/60" />
-                <p className="text-sm font-medium text-[#c0c6d4]">
-                  JARVIS Voice Engine Online
+              <div className="min-h-full flex flex-col justify-center py-8 sm:py-12">
+                <span
+                  className="intro self-start inline-flex items-center gap-2 h-8 px-3 rounded-full text-[11px] font-medium tracking-[0.04em] text-fg-2 shadow-[inset_0_0_0_1px_var(--line)]"
+                  style={{ ["--d" as string]: "0.1s" }}
+                >
+                  <span className="pulse-dot" />
+                  {isListening ? "Lagi dengerin" : "Online · siap dengerin"}
+                </span>
+
+                <h2 className="mt-6 text-h1 font-medium text-fg">
+                  {["Ngomong.", "Bikin.", "Rilis."].map((w, i) => (
+                    <span key={w} className="intro-mask">
+                      <span className="intro-line" style={{ ["--d" as string]: `${0.15 + i * 0.09}s` }}>
+                        {i === 2 ? (
+                          <>
+                            Rilis<span className="text-accent">.</span>
+                          </>
+                        ) : (
+                          w
+                        )}
+                      </span>
+                    </span>
+                  ))}
+                </h2>
+
+                <p className="intro mt-6 max-w-md text-[15px] leading-relaxed text-fg-3" style={{ ["--d" as string]: "0.5s" }}>
+                  Asisten suara yang ngoding website, nyusun slide, bikin invoice, dan jalanin terminal — cukup diomongin.
                 </p>
-                <p className="text-xs text-[#707a8e] mt-1.5 max-w-md leading-relaxed">
-                  Gunakan bilah input di bawah, klik ikon mikrofon, atau aktifkan mode JARVIS hands-free. Pilih Claude Skills untuk membuat slide presentasi animasi (.pptx / video), invoice PDF resmi, dan coding web interaktif.
-                </p>
+
+                <div className="intro mt-8 flex flex-wrap items-center gap-3" style={{ ["--d" as string]: "0.6s" }}>
+                  <Btn size="sm" onClick={handleToggleMic} disabled={isProcessing} icon={<Mic className="w-[0.9em] h-[0.9em]" strokeWidth={1.75} />}>
+                    {isListening ? "Stop dengerin" : "Mulai ngomong"}
+                  </Btn>
+                  <Btn size="sm"
+                    variant="outline"
+                    disabled={isProcessing}
+                    onClick={() => handleSendMessage("Bikinin landing page buat kedai kopi lokal yang modern")}
+                  >
+                    Bikin website
+                  </Btn>
+                </div>
+
+                {/* Kartu bernomor */}
+                <div className="mt-12 sm:mt-16 grid grid-cols-1 sm:grid-cols-2">
+                  {[
+                    { t: "Landing page kedai kopi", d: "Website full page + kode bisa dicek", q: "Bikinin landing page buat kedai kopi" },
+                    { t: "Slide presentasi AI", d: "5 halaman, siap unduh .pptx", q: "Buat slide presentasi 5 halaman tentang AI" },
+                    { t: "Invoice desain logo", d: "Rapi, siap kirim ke klien", q: "Bikin invoice untuk jasa desain logo" },
+                    { t: "Terminal", d: "Jalanin perintah pakai suara", q: "Buka terminal" },
+                  ].map((c, i) => (
+                    <button
+                      key={c.t}
+                      onClick={() => handleSendMessage(c.q)}
+                      disabled={isProcessing}
+                      className="num-card card-in group text-left pt-5 pb-6 sm:pr-8 cursor-pointer disabled:opacity-50"
+                      style={{ ["--i" as string]: i + 8 }}
+                    >
+                      <span className="block h-px bg-line relative overflow-hidden">
+                        <span className="num-card__rule absolute inset-0 bg-fg" />
+                      </span>
+                      <span className="mt-4 flex items-start justify-between gap-4">
+                        <span>
+                          <span className="font-mono text-[11px] text-fg-4">0{i + 1}</span>
+                          <span className="mt-1.5 block text-lg font-medium tracking-[-0.02em] text-fg">{c.t}</span>
+                          <span className="mt-1 block text-[13px] text-fg-3">{c.d}</span>
+                        </span>
+                        <span className="num-card__arrow mt-6 grid place-items-center w-6 h-6 rounded-full bg-accent text-white text-[13px]">
+                          <ArrowIcon />
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : (
               messages.map((msg) => (
@@ -892,6 +1045,19 @@ export default function VoiceAiStudio() {
                   onStopSpeaking={stopSpeaking}
                 />
               ))
+            )}
+            {isProcessing && (
+              <div className="chat-in flex gap-3 items-end" aria-live="polite">
+                <Logo active className="w-7 h-7" />
+                <div className="px-4 py-3 rounded-[1.1rem] rounded-bl-md bg-base text-sm text-fg-3 flex items-center gap-3">
+                  <span className="chat-dots text-fg-3">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  <span>{processingLabel}</span>
+                </div>
+              </div>
             )}
             <div ref={messagesEndRef} />
           </div>
@@ -927,10 +1093,15 @@ export default function VoiceAiStudio() {
         }}
         initialUrl={previewUrl}
         onUrlChange={setPreviewUrl}
+        projectId={activeProjectId}
+        onProjectChange={setActiveProjectId}
         isSidebarOpen={isSidebarOpen}
         isSidebarDrawer={isSidebarDrawer}
       />
     </div>
+
+    {/* Studio website full page (preview / struktur file & kode) */}
+      <WebsiteStudio />
 
     {/* Autonomous Coworker Cursor Operator */}
       <CoworkerCursorOperator

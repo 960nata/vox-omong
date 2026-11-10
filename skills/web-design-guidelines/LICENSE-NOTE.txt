@@ -1,0 +1,2 @@
+MIT License (dinyatakan di README repo vercel-labs/agent-skills; repo tidak menyertakan file LICENSE)
+Copyright (c) Vercel, Inc.

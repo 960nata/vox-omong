@@ -1,0 +1,198 @@
+import { callLLM } from "./codeAgent";
+import { openPage } from "./browser";
+import { parseLoose } from "./jsonLoose";
+import fs from "fs/promises";
+import path from "path";
+
+/**
+ * Tim agent ringan: Perencana -> Peneliti (paralel) -> Perangkum.
+ * Hemat token karena:
+ *  - perencana cuma 1 panggilan kecil (maks 3 sub-pertanyaan)
+ *  - peneliti mengambil halaman lewat browser (0 token), lalu 1 panggilan kecil untuk meringkas
+ *  - teks mentah dipotong keras sebelum masuk model; hasil tiap peneliti dibatasi ~600 karakter
+ *  - anggaran total karakter; kalau habis, sisa sub-pertanyaan dilewati
+ *  - model murah didahulukan (prefer groq), model besar hanya dipakai pipeline akhir (slide/dokumen)
+ */
+
+export interface AgentTask {
+  /** Topik riset. */
+  topic: string;
+  /** Bila ada, hasil riset dititipkan ke pipeline ini (slide/dokumen/spreadsheet/invoice). */
+  then: boolean;
+}
+
+const RESEARCH = /\b(riset|teliti|selidiki|cari\s+tahu|bandingkan|analisis)\b/i;
+const OUTPUT = /\b(slide|ppt|pptx|presentasi|dokumen|laporan|proposal|spreadsheet|tabel|artikel|video|animasi|infografis)\b/i;
+/** Data yang berubah tiap hari: wajib riset dulu, jangan dikarang model. */
+const LIVE = /\b(hari\s+ini|terkini|terbaru|saat\s+ini|sekarang|minggu\s+ini|bulan\s+ini|2026)\b/i;
+const LIVE_TOPIC = /\b(saham|ihsg|harga|kurs|crypto|bitcoin|emas|berita|cuaca|skor|klasemen|inflasi|bbm|statistik|data)\b/i;
+const THEN = /\b(lalu|terus|kemudian|habis\s+itu|setelah\s+itu|dan\s+(?:buat|bikin)|jadiin|jadikan)\b/i;
+const EXPLICIT = /^(?:tim\s+agent|agent|riset)\s*[:,-]\s*([\s\S]+)$/i;
+
+export function detectAgentTask(msg: string): AgentTask | null {
+  const m = msg.trim();
+  if (m.length < 12 || m.length > 600) return null;
+  const ex = m.match(EXPLICIT);
+  if (ex) return { topic: ex[1].trim(), then: OUTPUT.test(ex[1]) && THEN.test(ex[1]) };
+  if (RESEARCH.test(m) && OUTPUT.test(m) && THEN.test(m)) return { topic: m, then: true };
+  if (OUTPUT.test(m) && LIVE.test(m) && LIVE_TOPIC.test(m)) return { topic: m, then: true };
+  return null;
+}
+
+const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n) + "…" : s);
+const CHEAP = ["groq", "gemini"];
+
+async function plan(topic: string, apiKey?: string): Promise<string[]> {
+  try {
+    const r = await callLLM({
+      system: "Kamu perencana riset. Balas JSON saja.",
+      json: true,
+      prompt: `Pecah topik ini jadi 2-3 pertanyaan pencarian web yang pendek dan berbeda. Balas hanya JSON array of string.\nContoh — Topik: "tren kopi susu 2026 buat slide" -> ["tren kopi susu Indonesia 2026","pertumbuhan pasar kedai kopi Indonesia","harga rata-rata kopi susu kekinian"]\nTopik: ${clip(topic, 400)}`,
+      apiKey,
+      maxTokens: 160,
+      timeoutMs: 25000,
+      prefer: CHEAP, fast: true,
+    });
+    const arr = parseLoose<unknown>(r.text);
+    const qs = (Array.isArray(arr) ? arr : []).map((x) => String(x).trim()).filter(Boolean).slice(0, 3);
+    if (qs.length) return qs;
+  } catch {}
+  return [clip(topic, 120)];
+}
+
+async function research(q: string, apiKey?: string): Promise<{ q: string; note: string; src: string } | null> {
+  try {
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`;
+    const serp = await openPage(url);
+    const links = (serp.text.match(/https?:\/\/[^\s)]+/g) || []).filter((u) => !/duckduckgo\./.test(u));
+    const target = links[0];
+    let body = serp.text;
+    let src = url;
+    if (target) {
+      try {
+        const pg = await openPage(target);
+        if (pg.text.length > 400) { body = pg.text; src = pg.url; }
+      } catch {}
+    }
+    const r = await callLLM({
+      system: "Kamu peneliti ringkas.",
+      prompt: `Dari teks berikut, tulis 3-5 poin fakta terkait "${clip(q, 120)}" (maks 90 kata total, bahasa Indonesia, tanpa karangan; abaikan bila tidak relevan).\n\n${clip(body.replace(/\s+/g, " "), 2500)}`,
+      apiKey,
+      maxTokens: 220,
+      timeoutMs: 30000,
+      prefer: CHEAP, fast: true,
+    });
+    const note = r.text.trim();
+    return note ? { q, note: clip(note, 600), src } : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function runAgentTeam(task: AgentTask, apiKey?: string): Promise<{ notes: string; reply: string; spoken: string }> {
+  const old = await recall(task.topic);
+  const qs = await plan(task.topic, apiKey);
+  let budget = 6000; // karakter total catatan yang boleh dikumpulkan
+  const done = (await Promise.all(qs.map((q) => research(q, apiKey)))).filter((x): x is NonNullable<typeof x> => !!x);
+  const gap = done.length ? await review(task.topic, done.map((d) => d.note).join("\n"), apiKey) : null;
+  if (gap) { const extra = await research(gap, apiKey); if (extra) done.push(extra); }
+  const kept = done.filter((d) => (budget -= d.note.length) >= 0);
+  if (!kept.length) {
+    return {
+      notes: "",
+      reply: "Tim agent gagal ambil bahan dari web (browser/koneksi bermasalah). Coba lagi, atau kasih bahannya langsung.",
+      spoken: "Aku gagal ambil bahan dari web.",
+    };
+  }
+  const notes = kept.map((d) => `### ${d.q}\n${d.note}\n(Sumber: ${d.src})`).join("\n\n") + (old ? `\n\n### Catatan riset sebelumnya\n${old}` : "");
+  await remember(task.topic, kept.map((d) => d.note).join(" "));
+  const reply = `Hasil riset tim agent (${kept.length} pencarian):\n\n${notes}`;
+  return { notes, reply, spoken: `Riset selesai, ${kept.length} sumber terkumpul.` };
+}
+
+/* ---------------- Memori file (ringan, tanpa database) ---------------- */
+
+const MEM = path.join(process.cwd(), ".data", "agent-memory.json");
+interface MemItem { topic: string; note: string; t: number }
+
+async function memLoad(): Promise<MemItem[]> {
+  try { return JSON.parse(await fs.readFile(MEM, "utf8")); } catch { return []; }
+}
+
+const words = (s: string) => new Set(s.toLowerCase().match(/[a-z0-9]{4,}/g) || []);
+
+/** Ambil maksimal 3 catatan lama yang paling mirip topik (cukup ~900 karakter). */
+export async function recall(topic: string): Promise<string> {
+  const w = words(topic);
+  const scored = (await memLoad())
+    .map((m) => ({ m, s: [...words(m.topic)].filter((x) => w.has(x)).length }))
+    .filter((x) => x.s > 0)
+    .sort((a, b) => b.s - a.s || b.m.t - a.m.t)
+    .slice(0, 3);
+  return scored.map((x) => `- ${clip(x.m.note.replace(/\s+/g, " "), 300)}`).join("\n");
+}
+
+async function remember(topic: string, note: string): Promise<void> {
+  try {
+    const all = await memLoad();
+    all.push({ topic: clip(topic, 160), note: clip(note, 700), t: Date.now() });
+    await fs.mkdir(path.dirname(MEM), { recursive: true });
+    await fs.writeFile(MEM, JSON.stringify(all.slice(-60)));
+  } catch {}
+}
+
+/* ---------------- Pemeriksa ---------------- */
+
+async function review(topic: string, notes: string, apiKey?: string): Promise<string | null> {
+  try {
+    const r = await callLLM({
+      system: "Kamu pemeriksa riset. Balas JSON saja.",
+      json: true,
+      prompt: `Topik: ${clip(topic, 300)}\nCatatan:\n${clip(notes, 2500)}\n\nApakah catatan cukup menjawab topik? Balas {"ok":true} atau {"ok":false,"query":"satu pencarian tambahan yang pendek"}.`,
+      apiKey, maxTokens: 80, timeoutMs: 20000, prefer: CHEAP, fast: true,
+    });
+    const j = (parseLoose<Record<string, unknown>>(r.text) || {});
+    return j.ok === false && typeof j.query === "string" && j.query.trim() ? j.query.trim().slice(0, 140) : null;
+  } catch { return null; }
+}
+
+/* ---------------- Loop agent terbatas (mode "agent: ...") ---------------- */
+
+type Act = { tool: "cari" | "buka" | "selesai"; arg: string };
+
+export async function runAgentLoop(topic: string, apiKey?: string, maxSteps = 4): Promise<{ reply: string; spoken: string }> {
+  const mem = await recall(topic);
+  const pad: string[] = [];
+  let used = 0; // anggaran karakter observasi
+  for (let i = 0; i < maxSteps; i++) {
+    let act: Act | null = null;
+    try {
+      const r = await callLLM({
+        system: "Kamu agent riset hemat. Balas satu JSON saja.",
+      json: true,
+        prompt: `Tugas: ${clip(topic, 400)}\n${mem ? `Catatan lama:\n${mem}\n` : ""}Alat: cari(kata kunci) | buka(url) | selesai(jawaban akhir ringkas, bahasa Indonesia santai, sebut sumber).\nLangkah ${i + 1}/${maxSteps}. Kalau sudah cukup atau ini langkah terakhir, pakai selesai.\n${pad.length ? `Observasi:\n${pad.join("\n")}\n` : ""}Contoh balasan:\n{"tool":"cari","arg":"harga emas antam hari ini"}\n{"tool":"buka","arg":"https://www.logammulia.com/id/harga-emas-hari-ini"}\n{"tool":"selesai","arg":"Harga emas Antam hari ini Rp X per gram (sumber: logammulia.com)."}\nBalas SATU objek saja: {"tool":"cari|buka|selesai","arg":"..."}`,
+        apiKey, maxTokens: i === maxSteps - 1 ? 500 : 120, timeoutMs: 30000, prefer: CHEAP, fast: true,
+      });
+      const j = (parseLoose<Record<string, unknown>>(r.text) || {});
+      if ((j.tool === "cari" || j.tool === "buka" || j.tool === "selesai") && typeof j.arg === "string") act = { tool: j.tool, arg: j.arg };
+    } catch {}
+    if (!act) break;
+    if (act.tool === "selesai") {
+      await remember(topic, act.arg);
+      return { reply: act.arg, spoken: clip(act.arg.replace(/\s+/g, " "), 240) };
+    }
+    if (used > 5000) break;
+    let obs = "";
+    try {
+      const url = act.tool === "cari" ? `https://html.duckduckgo.com/html/?q=${encodeURIComponent(act.arg)}` : act.arg;
+      const pg = await openPage(url);
+      obs = clip(pg.text.replace(/\s+/g, " "), 1200);
+    } catch (e) {
+      obs = `gagal: ${(e as Error).message.slice(0, 80)}`;
+    }
+    used += obs.length;
+    pad.push(`${i + 1}. ${act.tool}(${clip(act.arg, 80)}) -> ${obs}`);
+  }
+  const fb = pad.length ? "Agent kehabisan langkah sebelum menyimpulkan. Observasi terakhir:\n" + clip(pad[pad.length - 1], 700) : "Agent gagal mulai (model/koneksi bermasalah). Coba lagi.";
+  return { reply: fb, spoken: "Agent belum selesai." };
+}

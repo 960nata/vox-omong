@@ -43,6 +43,9 @@ interface RightWorkspacePanelProps {
   onTriggerVoiceFeedback?: (text: string) => void;
   initialUrl?: string;
   onUrlChange?: (url: string) => void;
+  /** Project aktif dari induk (mis. berubah lewat perintah suara). */
+  projectId?: string;
+  onProjectChange?: (id: string) => void;
   isSidebarOpen?: boolean;
   isSidebarDrawer?: boolean;
 }
@@ -74,6 +77,8 @@ export function RightWorkspacePanel({
   onTriggerVoiceFeedback,
   initialUrl = "http://localhost:3000",
   onUrlChange,
+  projectId,
+  onProjectChange,
   isSidebarOpen = false,
   isSidebarDrawer = false,
 }: RightWorkspacePanelProps) {
@@ -86,19 +91,22 @@ export function RightWorkspacePanel({
   }, [isSidebarOpen, isSidebarDrawer]);
 
   // --- 1. Resizing & Responsiveness state ---
-  const [panelWidth, setPanelWidth] = useState(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("vox_workspace_width");
-        if (saved) {
-          const num = parseInt(saved, 10);
-          if (num >= 300 && num <= 1000) return num;
-        }
-      } catch {}
-      return window.innerWidth < 1180 ? Math.floor(window.innerWidth * 0.48) : 520;
-    }
-    return 520;
-  });
+  // Nilai awal tetap (sama di server & client), lalu baca preferensi setelah mount
+  const [panelWidth, setPanelWidth] = useState(520);
+  const [maxPanelWidth, setMaxPanelWidth] = useState(600);
+
+  useEffect(() => {
+    let initial = window.innerWidth < 1180 ? Math.floor(window.innerWidth * 0.48) : 520;
+    try {
+      const saved = localStorage.getItem("vox_workspace_width");
+      if (saved) {
+        const num = parseInt(saved, 10);
+        if (num >= 300 && num <= 1000) initial = num;
+      }
+    } catch {}
+    setPanelWidth(Math.min(initial, getMaxAllowedWidth()));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [isResizing, setIsResizing] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -106,6 +114,7 @@ export function RightWorkspacePanel({
     const handleResize = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
+      setMaxPanelWidth(getMaxAllowedWidth());
       if (!mobile) {
         const maxAllowed = getMaxAllowedWidth();
         setPanelWidth((prev) => Math.min(prev, maxAllowed));
@@ -161,7 +170,12 @@ export function RightWorkspacePanel({
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([
     { id: "default-workspace", name: "DEFAULT WORKSPACE" },
   ]);
-  const [activeProjectId, setActiveProjectId] = useState<string>("default-workspace");
+  const [internalProjectId, setInternalProjectId] = useState<string>("default-workspace");
+  const activeProjectId = projectId ?? internalProjectId;
+  const setActiveProjectId = (id: string) => {
+    setInternalProjectId(id);
+    if (id !== activeProjectId) onProjectChange?.(id);
+  };
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
 
@@ -247,6 +261,12 @@ export function RightWorkspacePanel({
       fetchTree();
     }
   }, [isOpen, activeTab]);
+
+  // Project berganti dari luar (perintah suara): muat ulang daftar project & file
+  useEffect(() => {
+    if (projectId) fetchTree(projectId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   // Sync preview when activeProjectId changes
   useEffect(() => {
@@ -389,8 +409,8 @@ export function RightWorkspacePanel({
       return (
         <div key={node.relativePath} className="select-none">
           <div
-            className={`group flex items-center justify-between px-2 py-1.5 hover:bg-[#1d222e] rounded-[3px] cursor-pointer text-xs transition-colors ${
-              selectedParent === node.relativePath ? "bg-[#242b3b] text-[#f3f4f6]" : "text-[#c2cad7]"
+            className={`group flex items-center justify-between px-2 py-1.5 hover:bg-hover rounded-lg cursor-pointer text-xs transition-colors ${
+              selectedParent === node.relativePath ? "bg-hover text-fg" : "text-fg"
             }`}
             style={{ paddingLeft: `${Math.max(6, level * 14 + 6)}px` }}
             onClick={() => {
@@ -399,13 +419,13 @@ export function RightWorkspacePanel({
             }}
           >
             <div className="flex items-center gap-1.5 overflow-hidden">
-              <span className="text-[#6c7689] shrink-0">
+              <span className="text-fg-3 shrink-0">
                 {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
               </span>
               {isExpanded ? (
-                <FolderOpen className="w-3.5 h-3.5 text-[#ea580c] shrink-0" />
+                <FolderOpen className="w-3.5 h-3.5 text-accent shrink-0" />
               ) : (
-                <Folder className="w-3.5 h-3.5 text-[#f97316]/80 shrink-0" />
+                <Folder className="w-3.5 h-3.5 text-accent-hi/80 shrink-0" />
               )}
               <span className="font-mono truncate">{node.name}</span>
             </div>
@@ -419,7 +439,7 @@ export function RightWorkspacePanel({
                   setIsCreatingFolder(true);
                 }}
                 title="Buat folder di sini"
-                className="p-1 hover:bg-[#2b3345] text-[#9ca3af] hover:text-[#f3f4f6] rounded-[2px]"
+                className="p-1 hover:bg-hover text-fg-2 hover:text-fg rounded-md"
               >
                 <FolderPlus className="w-3 h-3" />
               </button>
@@ -431,7 +451,7 @@ export function RightWorkspacePanel({
                   setIsCreatingFile(true);
                 }}
                 title="Buat file di sini"
-                className="p-1 hover:bg-[#2b3345] text-[#9ca3af] hover:text-[#f3f4f6] rounded-[2px]"
+                className="p-1 hover:bg-hover text-fg-2 hover:text-fg rounded-md"
               >
                 <FilePlus className="w-3 h-3" />
               </button>
@@ -442,7 +462,7 @@ export function RightWorkspacePanel({
                   handleDeleteItem(node.relativePath);
                 }}
                 title="Hapus"
-                className="p-1 hover:bg-[#3d1e1e] text-[#ef4444] rounded-[2px]"
+                className="p-1 hover:bg-danger-wash text-danger rounded-md"
               >
                 <Trash2 className="w-3 h-3" />
               </button>
@@ -450,7 +470,7 @@ export function RightWorkspacePanel({
           </div>
 
           {isExpanded && node.children && node.children.length > 0 && (
-            <div className="border-l border-[#242a38] ml-3">
+            <div className="border-l border-line ml-3">
               {node.children.map((child) => renderFileNode(child, level + 1))}
             </div>
           )}
@@ -461,26 +481,26 @@ export function RightWorkspacePanel({
     const ext = node.name.split(".").pop()?.toLowerCase();
     const icon =
       ext === "ts" || ext === "tsx" || ext === "js" || ext === "jsx" ? (
-        <FileCode className="w-3 h-3 text-[#38bdf8]" />
+        <FileCode className="w-3 h-3 text-lagoon" />
       ) : ext === "json" ? (
-        <FileJson className="w-3 h-3 text-[#fbbf24]" />
+        <FileJson className="w-3 h-3 text-glow" />
       ) : ext === "md" || ext === "txt" ? (
-        <FileText className="w-3 h-3 text-[#9ca3af]" />
+        <FileText className="w-3 h-3 text-fg-2" />
       ) : (
-        <File className="w-3 h-3 text-[#6b7280]" />
+        <File className="w-3 h-3 text-fg-3" />
       );
 
     return (
       <div
         key={node.relativePath}
-        className="group flex items-center justify-between px-2 py-1 hover:bg-[#1a1e28] rounded-[3px] text-xs transition-colors"
+        className="group flex items-center justify-between px-2 py-1 hover:bg-hover rounded-lg text-xs transition-colors"
         style={{ paddingLeft: `${Math.max(6, level * 14 + 18)}px` }}
       >
         <div className="flex items-center gap-1.5 overflow-hidden">
           {icon}
-          <span className="font-mono text-[#d1d5db] truncate">{node.name}</span>
+          <span className="font-mono text-fg truncate">{node.name}</span>
           {typeof node.size === "number" && (
-            <span className="text-[10px] text-[#5d677a] font-mono">
+            <span className="text-[10px] text-fg-3 font-mono">
               ({node.size > 1024 ? `${(node.size / 1024).toFixed(1)}KB` : `${node.size}B`})
             </span>
           )}
@@ -490,7 +510,7 @@ export function RightWorkspacePanel({
           type="button"
           onClick={() => handleDeleteItem(node.relativePath)}
           title="Hapus file"
-          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#3d1e1e] text-[#ef4444] rounded-[2px]"
+          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-danger-wash text-danger rounded-md"
         >
           <Trash2 className="w-3 h-3" />
         </button>
@@ -529,7 +549,7 @@ export function RightWorkspacePanel({
       const res = await fetch("/api/terminal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command: cmdToRun.trim() }),
+        body: JSON.stringify({ command: cmdToRun.trim(), projectId: activeProjectId }),
       });
       const data = await res.json();
       const newLog: TerminalLog = {
@@ -590,7 +610,7 @@ export function RightWorkspacePanel({
 
   const fetchGitInfo = async () => {
     try {
-      const res = await fetch("/api/git");
+      const res = await fetch(`/api/git?projectId=${encodeURIComponent(activeProjectId)}`);
       const data = await res.json();
       if (data.success) {
         setGitStatus(data);
@@ -610,34 +630,26 @@ export function RightWorkspacePanel({
     setDeployResult(null);
 
     try {
-      // Step 1: Git auto commit
-      setAutoDeployStep("1/3: Menyimpan perubahan (git add & commit)...");
-      const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      const commitRes = await fetch("/api/git", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "commit_and_push",
-          commitMessage: `auto-deploy: sync project at ${timeStr} via VOX·AI`,
-        }),
-      });
-      const commitData = await commitRes.json();
+      const post = (body: Record<string, unknown>) =>
+        fetch("/api/git", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...body, projectId: activeProjectId }),
+        });
 
-      // Step 2: Push if remote exists
-      setAutoDeployStep("2/3: Sinkronisasi ke GitHub origin main...");
+      // Step 1: pasang remote GitHub dulu (kalau diisi), supaya push berikutnya punya tujuan
+      setAutoDeployStep("1/3: Menyiapkan repo project (git init & remote)...");
+      await post({ action: "init" });
       if (repoUrl.trim()) {
         try {
-          await fetch("/api/git", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "set_remote",
-              repoUrl: repoUrl.trim(),
-              token: gitToken.trim(),
-            }),
-          });
+          await post({ action: "set_remote", repoUrl: repoUrl.trim(), token: gitToken.trim() });
         } catch {}
       }
+
+      // Step 2: commit lalu push (push dilewati otomatis kalau belum ada remote)
+      setAutoDeployStep("2/3: Menyimpan perubahan dan sinkronisasi ke GitHub...");
+      const timeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      await post({ action: "commit_and_push", commitMessage: `auto-deploy: sync project at ${timeStr} via VOX·AI` });
 
       // Step 3: Vercel deploy
       setAutoDeployStep("3/3: Deploy ke server cloud Vercel...");
@@ -647,6 +659,7 @@ export function RightWorkspacePanel({
         body: JSON.stringify({
           token: vercelToken.trim() || undefined,
           isProd: true,
+          projectId: activeProjectId,
         }),
       });
       const vercelData = await vercelRes.json();
@@ -691,8 +704,8 @@ export function RightWorkspacePanel({
 
   return (
     <div
-      style={!isMobile ? { width: `${panelWidth}px`, maxWidth: `${getMaxAllowedWidth()}px` } : undefined}
-      className={`bg-[#101217] border-l border-[#242936] shadow-2xl z-30 select-text overflow-hidden transition-all duration-75 flex flex-col ${
+      style={!isMobile ? { width: `${panelWidth}px`, maxWidth: `${maxPanelWidth}px` } : undefined}
+      className={`enter-right bg-base/90 backdrop-blur-xl border-l border-line shadow-[-20px_0_40px_-30px_rgba(0,0,0,0.5)] z-30 select-text overflow-hidden transition-all duration-75 flex flex-col ${
         isMobile
           ? "fixed inset-0 w-full h-full"
           : "relative h-full shrink-0"
@@ -703,185 +716,123 @@ export function RightWorkspacePanel({
         <div
           onMouseDown={handleMouseDownResize}
           title="Geser ke kiri/kanan untuk menyesuaikan lebar panel"
-          className="absolute top-0 bottom-0 -left-1.5 w-3 cursor-col-resize z-50 group hover:bg-[#ea580c]/30 flex items-center justify-center transition-colors"
+          className="absolute top-0 bottom-0 -left-1.5 w-3 cursor-col-resize z-50 group hover:bg-accent/30 flex items-center justify-center transition-colors"
         >
-          <div className="w-0.5 h-10 rounded-[1px] bg-[#3b4458] group-hover:bg-[#ea580c] transition-colors" />
+          <div className="w-0.5 h-10 rounded-sm bg-line group-hover:bg-accent transition-colors" />
         </div>
       )}
 
-      {/* Top Tab Bar */}
-      <div className="h-11 bg-[#141720] border-b border-[#232835] px-2 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-1 overflow-x-auto scrollbar-none font-mono text-xs">
-          {/* Tab 1: Preview */}
-          <button
-            onClick={() => onTabChange("preview")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[3px] border transition-colors ${
-              activeTab === "preview"
-                ? "bg-[#221c18] border-[#ea580c] text-[#f97316] font-semibold"
-                : "bg-[#181c25] border-transparent text-[#9ca3af] hover:text-[#f3f4f6] hover:bg-[#1f2430]"
-            }`}
-          >
-            <Globe className="w-3.5 h-3.5 text-[#38bdf8]" />
-            <span>WEBSITE PREVIEW</span>
-          </button>
-
-          {/* Tab 2: Explorer */}
-          <button
-            onClick={() => onTabChange("explorer")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[3px] border transition-colors ${
-              activeTab === "explorer"
-                ? "bg-[#221c18] border-[#ea580c] text-[#f97316] font-semibold"
-                : "bg-[#181c25] border-transparent text-[#9ca3af] hover:text-[#f3f4f6] hover:bg-[#1f2430]"
-            }`}
-          >
-            <Folder className="w-3.5 h-3.5 text-[#fbbf24]" />
-            <span>FOLDER PROJECT</span>
-          </button>
-
-          {/* Tab 3: Terminal */}
-          <button
-            onClick={() => onTabChange("terminal")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[3px] border transition-colors ${
-              activeTab === "terminal"
-                ? "bg-[#221c18] border-[#ea580c] text-[#f97316] font-semibold"
-                : "bg-[#181c25] border-transparent text-[#9ca3af] hover:text-[#f3f4f6] hover:bg-[#1f2430]"
-            }`}
-          >
-            <TerminalIcon className="w-3.5 h-3.5 text-[#10b981]" />
-            <span>TERMINAL</span>
-          </button>
-
-          {/* Tab 4: Deploy */}
-          <button
-            onClick={() => onTabChange("deploy")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-[3px] border transition-colors ${
-              activeTab === "deploy"
-                ? "bg-[#221c18] border-[#ea580c] text-[#f97316] font-semibold"
-                : "bg-[#181c25] border-transparent text-[#9ca3af] hover:text-[#f3f4f6] hover:bg-[#1f2430]"
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5 text-[#ea580c]" />
-            <span>AUTO DEPLOY</span>
-          </button>
+      {/* Tab workspace */}
+      <div className="h-12 bg-base/80 backdrop-blur border-b border-line px-2 flex items-center justify-between gap-2 shrink-0">
+        <div role="tablist" className="flex items-center gap-0.5 p-1 rounded-2xl bg-hover/60 overflow-x-auto [scrollbar-width:none] text-[13px] min-w-0">
+          {(
+            [
+              { tab: "preview", label: "Preview", Icon: Globe },
+              { tab: "explorer", label: "File", Icon: Folder },
+              { tab: "terminal", label: "Terminal", Icon: TerminalIcon },
+              { tab: "deploy", label: "Deploy", Icon: Zap },
+            ] as { tab: WorkspaceTab; label: string; Icon: typeof Globe }[]
+          ).map(({ tab, label, Icon }) => {
+            const active = activeTab === tab;
+            return (
+              <button
+                key={tab}
+                role="tab"
+                aria-selected={active}
+                onClick={() => onTabChange(tab)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                  active
+                    ? "bg-raised text-fg font-medium shadow-[0_4px_12px_-8px_rgba(0,0,0,0.8)]"
+                    : "text-fg-3 hover:text-fg"
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${active ? "text-accent" : ""}`} />
+                {label}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Panel controls */}
-        <div className="flex items-center gap-1 shrink-0 ml-2">
-          <button
-            onClick={onClose}
-            title="Tutup Panel Workspace"
-            className="p-1.5 text-[#8892a4] hover:text-[#f3f4f6] hover:bg-[#202533] rounded-[3px] transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+        <button
+          onClick={onClose}
+          title="Tutup panel workspace"
+          aria-label="Tutup panel workspace"
+          className="p-1.5 text-fg-3 hover:text-fg hover:bg-hover rounded-lg transition-colors cursor-pointer shrink-0"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* ================= TAB 1: WEBSITE PREVIEW ================= */}
         {activeTab === "preview" && (
-          <div className="flex-1 flex flex-col overflow-hidden bg-[#0a0c10]">
-            {/* Browser Control Bar */}
-            <div className="p-2 bg-[#141720] border-b border-[#232835] flex items-center gap-2 text-xs font-mono">
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Bar browser: muat ulang · alamat · ukuran layar · buka tab baru */}
+            <div className="px-2.5 py-2 border-b border-line flex items-center gap-1.5">
               <button
-                onClick={() => setIframeKey((k) => k + 1)}
-                title="Reload Preview"
-                className="p-1.5 bg-[#1b1f2a] hover:bg-[#252c3c] text-[#a0abbd] hover:text-[#f3f4f6] border border-[#2c3445] rounded-[3px] transition-colors"
+                onClick={() => {
+                  handleApplyUrl(undefined, `/api/preview?projectId=${activeProjectId}&t=${Date.now()}`);
+                }}
+                title="Muat ulang preview"
+                aria-label="Muat ulang preview"
+                className="lift p-2 rounded-xl text-fg-3 hover:text-fg hover:bg-hover cursor-pointer group"
               >
-                <RotateCw className="w-3.5 h-3.5" />
+                <RotateCw className="w-4 h-4 transition-transform duration-500 group-active:rotate-180" />
               </button>
 
-              <form onSubmit={handleApplyUrl} className="flex-1 flex items-center relative">
+              <form onSubmit={handleApplyUrl} className="flex-1 min-w-0 flex items-center relative">
+                <Globe className="absolute left-3 w-3.5 h-3.5 text-fg-4 pointer-events-none" />
                 <input
                   type="text"
                   value={inputUrl}
                   onChange={(e) => setInputUrl(e.target.value)}
-                  placeholder="/api/preview?projectId=... atau https://..."
-                  className="w-full bg-[#0d0f14] border border-[#2b3345] focus:border-[#ea580c] text-[#e2e8f0] text-xs font-mono rounded-[3px] px-2.5 py-1.5 pr-7 outline-hidden transition-colors"
+                  placeholder="Alamat atau URL website"
+                  aria-label="Alamat preview"
+                  className="w-full bg-raised/80 border border-line focus:border-accent text-fg text-[13px] rounded-full pl-8 pr-9 py-1.5 outline-hidden transition-colors"
                 />
-                <button
-                  type="submit"
-                  title="Buka URL"
-                  className="absolute right-1 p-1 text-[#8b95a8] hover:text-[#f3f4f6]"
-                >
+                <button type="submit" title="Buka alamat" aria-label="Buka alamat" className="absolute right-1.5 p-1 rounded-full text-fg-3 hover:text-fg hover:bg-hover cursor-pointer">
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </form>
 
-              {/* Viewport switchers */}
-              <div className="flex items-center bg-[#181c26] border border-[#2b3345] rounded-[3px] p-0.5">
-                <button
-                  onClick={() => setViewportMode("desktop")}
-                  title="Desktop (100%)"
-                  className={`p-1 rounded-[2px] transition-colors ${
-                    viewportMode === "desktop" ? "bg-[#252d3d] text-[#38bdf8]" : "text-[#717b8f]"
-                  }`}
-                >
-                  <Monitor className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setViewportMode("tablet")}
-                  title="Tablet (768px)"
-                  className={`p-1 rounded-[2px] transition-colors ${
-                    viewportMode === "tablet" ? "bg-[#252d3d] text-[#38bdf8]" : "text-[#717b8f]"
-                  }`}
-                >
-                  <Tablet className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setViewportMode("mobile")}
-                  title="Mobile (375px)"
-                  className={`p-1 rounded-[2px] transition-colors ${
-                    viewportMode === "mobile" ? "bg-[#252d3d] text-[#38bdf8]" : "text-[#717b8f]"
-                  }`}
-                >
-                  <Smartphone className="w-3.5 h-3.5" />
-                </button>
+              <div className="hidden sm:flex items-center p-0.5 rounded-xl bg-hover/70" role="group" aria-label="Ukuran layar">
+                {(
+                  [
+                    ["desktop", Monitor, "Desktop"],
+                    ["tablet", Tablet, "Tablet (768px)"],
+                    ["mobile", Smartphone, "HP (375px)"],
+                  ] as const
+                ).map(([mode, Icon, label]) => (
+                  <button
+                    key={mode}
+                    onClick={() => setViewportMode(mode)}
+                    title={label}
+                    aria-label={label}
+                    aria-pressed={viewportMode === mode}
+                    className={`p-1.5 rounded-[10px] transition-all cursor-pointer ${
+                      viewportMode === mode ? "bg-raised text-accent shadow-[0_2px_8px_-4px_rgba(0,0,0,0.6)]" : "text-fg-3 hover:text-fg"
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                  </button>
+                ))}
               </div>
 
               <a
                 href={previewUrl}
                 target="_blank"
                 rel="noreferrer"
-                title="Buka di tab browser baru"
-                className="p-1.5 bg-[#1b1f2a] hover:bg-[#252c3c] text-[#a0abbd] hover:text-[#f3f4f6] border border-[#2c3445] rounded-[3px] transition-colors"
+                title="Buka di tab baru"
+                aria-label="Buka di tab baru"
+                className="lift p-2 rounded-xl text-fg-3 hover:text-fg hover:bg-hover"
               >
-                <ExternalLink className="w-3.5 h-3.5" />
+                <ExternalLink className="w-4 h-4" />
               </a>
             </div>
 
-            {/* Sub-bar: Project preview presets */}
-            <div className="px-3 py-1.5 bg-[#10131b] border-b border-[#212736] flex items-center justify-between text-[11px] font-mono text-[#8a95a8]">
-              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-                <span className="text-[#ea580c] text-[10px] uppercase font-semibold">PREVIEW:</span>
-                <button
-                  type="button"
-                  onClick={() => handleApplyUrl(undefined, `/api/preview?projectId=${activeProjectId}`)}
-                  className={`px-2 py-0.5 rounded-[2px] border transition-colors ${
-                    previewUrl.includes(`/api/preview?projectId=${activeProjectId}`)
-                      ? "bg-[#1f2838] border-[#38bdf8] text-[#38bdf8]"
-                      : "bg-[#151922] border-[#293245] text-[#9ca3af] hover:text-[#f3f4f6]"
-                  }`}
-                >
-                  📄 Project index.html
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleApplyUrl(undefined, `/api/preview?projectId=${activeProjectId}&t=${Date.now()}`)}
-                  className="px-2 py-0.5 rounded-[2px] bg-[#151922] hover:bg-[#1e2433] border border-[#293245] text-[#9ca3af] hover:text-[#f3f4f6] transition-colors"
-                >
-                  ⚡ Live Refresh
-                </button>
-              </div>
-
-              <div className="text-[10px] text-[#626d82] hidden sm:inline">
-                Workspace: <span className="text-[#38bdf8] font-bold">{activeProjectId}</span>
-              </div>
-            </div>
-
             {/* Iframe Container */}
-            <div className="flex-1 flex items-center justify-center p-2 bg-[#0a0c10] overflow-auto">
+            <div className="flex-1 flex items-center justify-center p-2.5 overflow-auto">
               <div
                 style={{
                   width:
@@ -892,7 +843,7 @@ export function RightWorkspacePanel({
                       : "100%",
                   height: "100%",
                 }}
-                className="bg-[#0b0d13] rounded-[3px] shadow-2xl overflow-hidden border border-[#2b3345] transition-all"
+                className="bg-white rounded-2xl overflow-hidden border border-line shadow-[0_24px_50px_-30px_rgba(0,0,0,0.6)] transition-[width] duration-500 ease-out"
               >
                 <iframe
                   key={iframeKey}
@@ -908,11 +859,11 @@ export function RightWorkspacePanel({
 
         {/* ================= TAB 2: PROJECT EXPLORER ================= */}
         {activeTab === "explorer" && (
-          <div className="flex-1 flex flex-col overflow-hidden bg-[#101217]">
-            {/* Project Workspace Selector Bar */}
-            <div className="p-2.5 bg-[#151922] border-b border-[#242b3a] flex items-center justify-between text-xs font-mono">
-              <div className="flex items-center gap-2 overflow-hidden flex-1 mr-2">
-                <span className="text-[#848fa5] text-[10px] shrink-0 uppercase font-semibold">PROJECT AKUN:</span>
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Pilih project + aksi */}
+            <div className="px-3 py-2.5 border-b border-line flex items-center gap-2">
+              <label className="relative flex-1 min-w-0">
+                <span className="sr-only">Project</span>
                 <select
                   value={activeProjectId}
                   onChange={(e) => {
@@ -920,7 +871,7 @@ export function RightWorkspacePanel({
                     setActiveProjectId(newId);
                     fetchTree(newId);
                   }}
-                  className="bg-[#0f1118] border border-[#2b3447] text-[#f3f4f6] text-xs font-mono rounded-[3px] px-2 py-1 outline-hidden focus:border-[#ea580c] truncate max-w-[200px]"
+                  className="w-full appearance-none bg-raised/80 border border-line hover:border-line-strong focus:border-accent text-fg text-sm font-medium rounded-xl pl-3 pr-8 py-2 outline-hidden cursor-pointer transition-colors truncate"
                 >
                   {projects.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -928,16 +879,16 @@ export function RightWorkspacePanel({
                     </option>
                   ))}
                 </select>
-              </div>
-
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-fg-3 pointer-events-none" />
+              </label>
               <button
                 type="button"
                 onClick={() => setIsCreatingProject(!isCreatingProject)}
-                className="px-2.5 py-1 bg-[#ea580c] hover:bg-[#f97316] text-white text-[11px] font-mono rounded-[3px] shrink-0 flex items-center gap-1 transition-colors"
-                title="Buat Project Baru Khusus di Akun Anda"
+                className="lift px-3 py-2 bg-fg text-raised hover:bg-accent text-xs font-medium rounded-xl shrink-0 flex items-center gap-1.5 cursor-pointer"
+                title="Buat project baru"
               >
                 <FolderPlus className="w-3.5 h-3.5" />
-                <span>+ Project Baru</span>
+                Project baru
               </button>
             </div>
 
@@ -945,68 +896,63 @@ export function RightWorkspacePanel({
             {isCreatingProject && (
               <form
                 onSubmit={handleCreateProject}
-                className="p-2.5 bg-[#1a1f2b] border-b border-[#2d364a] flex items-center gap-2 text-xs font-mono animate-fadeIn"
+                className="px-3 py-2.5 border-b border-line flex items-center gap-2 text-xs animate-rise"
               >
-                <span className="text-[#ea580c] font-semibold text-xs shrink-0">Nama Project:</span>
+                <span className="text-accent font-semibold text-xs shrink-0">Nama Project:</span>
                 <input
                   type="text"
                   autoFocus
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
                   placeholder="Contoh: Kasir Cafe / Landing Page / Toko Online"
-                  className="flex-1 bg-[#101218] border border-[#374258] rounded-[3px] px-2.5 py-1 text-white outline-hidden focus:border-[#ea580c]"
+                  className="flex-1 bg-base border border-line-strong rounded-lg px-2.5 py-1 text-fg outline-hidden focus:border-accent"
                 />
-                <button type="submit" className="px-3 py-1 bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px]">
+                <button type="submit" className="px-3 py-1 bg-accent hover:bg-accent-hi text-on-accent rounded-lg">
                   Buat Project
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsCreatingProject(false)}
-                  className="px-2 py-1 bg-[#232835] text-[#9ca3af] rounded-[3px]"
+                  className="px-2 py-1 bg-hover text-fg-2 rounded-lg"
                 >
                   Batal
                 </button>
               </form>
             )}
 
-            {/* Explorer Toolbar */}
-            <div className="p-2.5 bg-[#141720] border-b border-[#232835] flex items-center justify-between text-xs font-mono">
-              <div className="flex items-center gap-2">
+            {/* Toolbar file */}
+            <div className="px-3 py-1.5 border-b border-line flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1">
                 <button
                   onClick={() => {
                     setSelectedParent("");
                     setIsCreatingFolder(true);
                   }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 bg-[#1c2230] hover:bg-[#273042] text-[#e2e8f0] border border-[#2f394d] hover:border-[#ea580c] rounded-[3px] transition-colors"
+                  className="lift flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-fg-2 hover:text-fg hover:bg-hover cursor-pointer"
                 >
-                  <FolderPlus className="w-3.5 h-3.5 text-[#ea580c]" />
-                  <span>+ Folder</span>
+                  <FolderPlus className="w-3.5 h-3.5 text-glow" />
+                  Folder
                 </button>
                 <button
                   onClick={() => {
                     setSelectedParent("");
                     setIsCreatingFile(true);
                   }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 bg-[#1c2230] hover:bg-[#273042] text-[#e2e8f0] border border-[#2f394d] hover:border-[#38bdf8] rounded-[3px] transition-colors"
+                  className="lift flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-fg-2 hover:text-fg hover:bg-hover cursor-pointer"
                 >
-                  <FilePlus className="w-3.5 h-3.5 text-[#38bdf8]" />
-                  <span>+ File</span>
+                  <FilePlus className="w-3.5 h-3.5 text-lagoon" />
+                  File
                 </button>
               </div>
-
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] text-[#6b768c] font-mono hidden sm:inline">
-                  /{activeProjectId}
-                </span>
-                <button
-                  onClick={() => fetchTree()}
-                  disabled={treeLoading}
-                  title="Refresh File Tree"
-                  className="p-1 text-[#8b95a8] hover:text-[#f3f4f6]"
-                >
-                  <RotateCw className={`w-3.5 h-3.5 ${treeLoading ? "animate-spin text-[#ea580c]" : ""}`} />
-                </button>
-              </div>
+              <button
+                onClick={() => fetchTree()}
+                disabled={treeLoading}
+                title="Muat ulang daftar file"
+                aria-label="Muat ulang daftar file"
+                className="p-1.5 rounded-lg text-fg-3 hover:text-fg hover:bg-hover cursor-pointer"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${treeLoading ? "animate-spin text-accent" : ""}`} />
+              </button>
             </div>
 
             {/* Feedback Message */}
@@ -1014,8 +960,8 @@ export function RightWorkspacePanel({
               <div
                 className={`px-3 py-1.5 text-xs font-mono border-b flex items-center justify-between ${
                   explorerMsg.ok
-                    ? "bg-[#112418] border-[#166534] text-[#4ade80]"
-                    : "bg-[#271212] border-[#7f1d1d] text-[#f87171]"
+                    ? "bg-moss-wash border-moss text-moss"
+                    : "bg-danger-wash border-danger text-danger"
                 }`}
               >
                 <span>{explorerMsg.text}</span>
@@ -1029,25 +975,25 @@ export function RightWorkspacePanel({
             {isCreatingFolder && (
               <form
                 onSubmit={handleCreateFolder}
-                className="p-2.5 bg-[#181c26] border-b border-[#2a3244] flex items-center gap-2 text-xs font-mono animate-fadeIn"
+                className="px-3 py-2.5 border-b border-line flex items-center gap-2 text-xs animate-rise"
               >
-                <FolderPlus className="w-4 h-4 text-[#ea580c] shrink-0" />
-                <span className="text-[#8894a8] shrink-0">{selectedParent ? `${selectedParent}/` : ""}</span>
+                <FolderPlus className="w-4 h-4 text-accent shrink-0" />
+                <span className="text-fg-3 shrink-0">{selectedParent ? `${selectedParent}/` : ""}</span>
                 <input
                   type="text"
                   autoFocus
                   value={newFolderName}
                   onChange={(e) => setNewFolderName(e.target.value)}
                   placeholder="nama_folder_baru"
-                  className="flex-1 bg-[#111319] border border-[#343e54] rounded-[3px] px-2 py-1 text-white outline-hidden focus:border-[#ea580c]"
+                  className="flex-1 bg-raised border border-line-strong rounded-lg px-2 py-1 text-fg outline-hidden focus:border-accent"
                 />
-                <button type="submit" className="px-2.5 py-1 bg-[#ea580c] text-white rounded-[3px]">
+                <button type="submit" className="px-2.5 py-1 bg-accent text-on-accent rounded-lg">
                   Buat
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsCreatingFolder(false)}
-                  className="px-2 py-1 bg-[#232835] text-[#9ca3af] rounded-[3px]"
+                  className="px-2 py-1 bg-hover text-fg-2 rounded-lg"
                 >
                   Batal
                 </button>
@@ -1058,25 +1004,25 @@ export function RightWorkspacePanel({
             {isCreatingFile && (
               <form
                 onSubmit={handleCreateFile}
-                className="p-2.5 bg-[#181c26] border-b border-[#2a3244] flex items-center gap-2 text-xs font-mono animate-fadeIn"
+                className="px-3 py-2.5 border-b border-line flex items-center gap-2 text-xs animate-rise"
               >
-                <FilePlus className="w-4 h-4 text-[#38bdf8] shrink-0" />
-                <span className="text-[#8894a8] shrink-0">{selectedParent ? `${selectedParent}/` : ""}</span>
+                <FilePlus className="w-4 h-4 text-lagoon shrink-0" />
+                <span className="text-fg-3 shrink-0">{selectedParent ? `${selectedParent}/` : ""}</span>
                 <input
                   type="text"
                   autoFocus
                   value={newFileName}
                   onChange={(e) => setNewFileName(e.target.value)}
                   placeholder="nama_file.ts"
-                  className="flex-1 bg-[#111319] border border-[#343e54] rounded-[3px] px-2 py-1 text-white outline-hidden focus:border-[#38bdf8]"
+                  className="flex-1 bg-raised border border-line-strong rounded-lg px-2 py-1 text-fg outline-hidden focus:border-lagoon"
                 />
-                <button type="submit" className="px-2.5 py-1 bg-[#0284c7] text-white rounded-[3px]">
+                <button type="submit" className="px-2.5 py-1 bg-lagoon text-on-accent rounded-lg">
                   Buat
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsCreatingFile(false)}
-                  className="px-2 py-1 bg-[#232835] text-[#9ca3af] rounded-[3px]"
+                  className="px-2 py-1 bg-hover text-fg-2 rounded-lg"
                 >
                   Batal
                 </button>
@@ -1086,12 +1032,12 @@ export function RightWorkspacePanel({
             {/* Tree View List */}
             <div className="flex-1 overflow-y-auto p-2.5 space-y-0.5">
               {treeLoading && tree.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-[#67738a]">
-                  <Loader2 className="w-6 h-6 animate-spin text-[#ea580c] mb-2" />
+                <div className="flex flex-col items-center justify-center py-16 text-fg-3">
+                  <Loader2 className="w-6 h-6 animate-spin text-accent mb-2" />
                   <span className="text-xs font-mono">Memuat struktur direktori...</span>
                 </div>
               ) : tree.length === 0 ? (
-                <div className="text-center py-16 text-xs font-mono text-[#67738a]">
+                <div className="text-center py-16 text-xs font-mono text-fg-3">
                   Direktori kosong atau belum terindeks.
                 </div>
               ) : (
@@ -1103,41 +1049,41 @@ export function RightWorkspacePanel({
 
         {/* ================= TAB 3: TERMINAL ================= */}
         {activeTab === "terminal" && (
-          <div className="flex-1 flex flex-col overflow-hidden bg-[#0c0e13] font-mono text-xs">
+          <div className="flex-1 flex flex-col overflow-hidden bg-base font-mono text-xs">
             {/* Quick Command Pills */}
-            <div className="p-2 bg-[#141720] border-b border-[#232835] flex items-center gap-1.5 overflow-x-auto scrollbar-none text-[11px]">
+            <div className="p-2 bg-raised border-b border-line flex items-center gap-1.5 overflow-x-auto scrollbar-none text-[11px]">
               <button
                 onClick={() => executeCommand("git status")}
                 disabled={isRunningCmd}
-                className="px-2 py-0.5 bg-[#1b1f28] hover:bg-[#252a36] text-[#9ca3af] hover:text-[#f3f4f6] border border-[#2e3444] rounded-[3px] shrink-0"
+                className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg shrink-0"
               >
                 git status
               </button>
               <button
                 onClick={() => executeCommand("git add -A && git status")}
                 disabled={isRunningCmd}
-                className="px-2 py-0.5 bg-[#1b1f28] hover:bg-[#252a36] text-[#9ca3af] hover:text-[#f3f4f6] border border-[#2e3444] rounded-[3px] shrink-0 text-[#10b981]"
+                className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg shrink-0 text-moss"
               >
                 git add all
               </button>
               <button
                 onClick={() => executeCommand("npm run build")}
                 disabled={isRunningCmd}
-                className="px-2 py-0.5 bg-[#1b1f28] hover:bg-[#252a36] text-[#9ca3af] hover:text-[#f3f4f6] border border-[#2e3444] rounded-[3px] shrink-0 text-[#38bdf8]"
+                className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg shrink-0 text-lagoon"
               >
                 npm build
               </button>
               <button
                 onClick={() => executeCommand("vercel --version")}
                 disabled={isRunningCmd}
-                className="px-2 py-0.5 bg-[#1b1f28] hover:bg-[#252a36] text-[#9ca3af] hover:text-[#f3f4f6] border border-[#2e3444] rounded-[3px] shrink-0"
+                className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg shrink-0"
               >
                 vercel info
               </button>
               <button
                 onClick={() => executeCommand("ls -la")}
                 disabled={isRunningCmd}
-                className="px-2 py-0.5 bg-[#1b1f28] hover:bg-[#252a36] text-[#9ca3af] hover:text-[#f3f4f6] border border-[#2e3444] rounded-[3px] shrink-0"
+                className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg shrink-0"
               >
                 ls -la
               </button>
@@ -1147,32 +1093,32 @@ export function RightWorkspacePanel({
             <div className="flex-1 p-3 overflow-y-auto space-y-3">
               {logs.map((log) => (
                 <div key={log.id} className="space-y-1">
-                  <div className="flex items-center justify-between text-[#7d889b] text-[10px]">
-                    <span className="text-[#ea580c] font-semibold">$ {log.command}</span>
+                  <div className="flex items-center justify-between text-fg-3 text-[10px]">
+                    <span className="text-accent font-semibold">$ {log.command}</span>
                     <span>
                       {log.timestamp} ({log.durationMs}ms)
                     </span>
                   </div>
 
                   {log.stdout && (
-                    <pre className="text-[#d8dde6] bg-[#12151c] p-2.5 rounded-[3px] whitespace-pre-wrap leading-relaxed border border-[#202533] text-[11px]">
+                    <pre className="text-fg bg-raised p-2.5 rounded-lg whitespace-pre-wrap leading-relaxed border border-line text-[11px]">
                       {log.stdout}
                     </pre>
                   )}
 
                   {log.stderr && (
-                    <pre className="text-[#f87171] bg-[#221313] p-2.5 rounded-[3px] whitespace-pre-wrap leading-relaxed border border-[#3d1e1e] text-[11px]">
+                    <pre className="text-danger bg-danger-wash p-2.5 rounded-lg whitespace-pre-wrap leading-relaxed border border-danger text-[11px]">
                       {log.stderr}
                     </pre>
                   )}
 
                   <div className="flex items-center gap-1.5 text-[10px]">
                     {log.exitCode === 0 ? (
-                      <span className="text-[#10b981] flex items-center gap-1">
+                      <span className="text-moss flex items-center gap-1">
                         <Check className="w-3 h-3" /> Exited 0
                       </span>
                     ) : (
-                      <span className="text-[#ef4444] flex items-center gap-1">
+                      <span className="text-danger flex items-center gap-1">
                         <AlertCircle className="w-3 h-3" /> Exited {log.exitCode}
                       </span>
                     )}
@@ -1188,21 +1134,21 @@ export function RightWorkspacePanel({
                 e.preventDefault();
                 executeCommand(inputCmd);
               }}
-              className="h-10 bg-[#12151c] border-t border-[#232835] px-3 flex items-center gap-2"
+              className="h-10 bg-raised border-t border-line px-3 flex items-center gap-2"
             >
-              <span className="text-[#ea580c] font-bold select-none text-xs">$&gt;</span>
+              <span className="text-accent font-bold select-none text-xs">$&gt;</span>
               <input
                 type="text"
                 value={inputCmd}
                 onChange={(e) => setInputCmd(e.target.value)}
                 disabled={isRunningCmd}
                 placeholder="Ketik perintah terminal (git, npm, vercel)..."
-                className="flex-1 bg-transparent text-[#f3f4f6] outline-hidden placeholder-[#525b6c] text-xs font-mono"
+                className="flex-1 bg-transparent text-fg outline-hidden placeholder-fg-4 text-xs font-mono"
               />
               <button
                 type="submit"
                 disabled={!inputCmd.trim() || process.env.NODE_ENV === "test" || isRunningCmd}
-                className="px-3 py-1 bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] font-mono text-[11px] font-semibold flex items-center gap-1 transition-colors disabled:opacity-50"
+                className="px-3 py-1 bg-accent hover:bg-accent-hi text-on-accent rounded-lg font-mono text-[11px] font-semibold flex items-center gap-1 transition-colors disabled:opacity-50"
               >
                 {isRunningCmd ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                 <span>Run</span>
@@ -1213,17 +1159,17 @@ export function RightWorkspacePanel({
 
         {/* ================= TAB 4: AUTO DEPLOY (GIT & VERCEL) ================= */}
         {activeTab === "deploy" && (
-          <div className="flex-1 flex flex-col p-4 overflow-y-auto bg-[#0d0f14] space-y-4 font-mono text-xs">
+          <div className="flex-1 flex flex-col p-4 overflow-y-auto bg-base space-y-4 font-mono text-xs">
             {/* Big 1-Click Auto Deploy Hero */}
-            <div className="p-4 bg-linear-to-b from-[#201c18] to-[#161820] border border-[#ea580c]/50 rounded-[3px] shadow-lg space-y-3">
+            <div className="p-4 bg-linear-to-b from-raised to-raised border border-accent/50 rounded-lg shadow-lg space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-[3px] bg-[#ea580c] text-white flex items-center justify-center">
+                  <div className="w-7 h-7 rounded-lg bg-accent text-on-accent flex items-center justify-center">
                     <Zap className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-sm text-[#f3f4f6]">AUTO-SYNC &amp; VERCEL DEPLOY</h3>
-                    <p className="text-[11px] text-[#9ca3af]">
+                    <h3 className="font-semibold text-sm text-fg">AUTO-SYNC &amp; VERCEL DEPLOY</h3>
+                    <p className="text-[11px] text-fg-2">
                       Otomatis commit ke Git, push ke GitHub, dan deploy ke Vercel
                     </p>
                   </div>
@@ -1231,7 +1177,7 @@ export function RightWorkspacePanel({
               </div>
 
               {isAutoDeploying && (
-                <div className="p-2.5 bg-[#251e18] border border-[#ea580c] rounded-[3px] flex items-center gap-2.5 text-xs text-[#f97316] animate-pulse">
+                <div className="p-2.5 bg-accent-wash border border-accent rounded-lg flex items-center gap-2.5 text-xs text-accent-hi animate-pulse">
                   <Loader2 className="w-4 h-4 animate-spin shrink-0" />
                   <span>{autoDeployStep || "Menjalankan proses auto-deploy..."}</span>
                 </div>
@@ -1239,10 +1185,10 @@ export function RightWorkspacePanel({
 
               {deployResult && (
                 <div
-                  className={`p-3 rounded-[3px] border text-xs space-y-1.5 ${
+                  className={`p-3 rounded-lg border text-xs space-y-1.5 ${
                     deployResult.ok
-                      ? "bg-[#112418] border-[#166534] text-[#4ade80]"
-                      : "bg-[#281313] border-[#7f1d1d] text-[#f87171]"
+                      ? "bg-moss-wash border-moss text-moss"
+                      : "bg-danger-wash border-danger text-danger"
                   }`}
                 >
                   <div className="flex items-center gap-2 font-semibold">
@@ -1251,7 +1197,7 @@ export function RightWorkspacePanel({
                   </div>
                   {deployResult.url && (
                     <div className="pt-1 flex items-center justify-between">
-                      <span className="text-[#a7f3d0] truncate font-sans text-xs underline">
+                      <span className="text-moss truncate font-sans text-xs underline">
                         {deployResult.url}
                       </span>
                       <button
@@ -1260,7 +1206,7 @@ export function RightWorkspacePanel({
                           setInputUrl(deployResult.url!);
                           onTabChange("preview");
                         }}
-                        className="px-2 py-0.5 bg-[#166534] text-white text-[10px] rounded-[2px]"
+                        className="px-2 py-0.5 bg-moss text-on-accent text-[10px] rounded-md"
                       >
                         Buka di Preview
                       </button>
@@ -1273,7 +1219,7 @@ export function RightWorkspacePanel({
                 type="button"
                 onClick={handleAutoDeploy}
                 disabled={isAutoDeploying}
-                className="w-full py-2.5 bg-[#ea580c] hover:bg-[#f97316] text-white font-semibold rounded-[3px] flex items-center justify-center gap-2 transition-colors disabled:opacity-50 text-xs tracking-wider"
+                className="w-full py-2.5 bg-accent hover:bg-accent-hi text-on-accent font-semibold rounded-lg flex items-center justify-center gap-2 transition-colors disabled:opacity-50 text-xs tracking-wider"
               >
                 {isAutoDeploying ? (
                   <>
@@ -1283,26 +1229,26 @@ export function RightWorkspacePanel({
                 ) : (
                   <>
                     <Zap className="w-4 h-4" />
-                    <span>⚡ JALANKAN AUTO DEPLOY SEKARANG</span>
+                    <span>JALANKAN AUTO DEPLOY SEKARANG</span>
                   </>
                 )}
               </button>
             </div>
 
             {/* GitHub Info Card */}
-            <div className="p-3.5 bg-[#141720] border border-[#232835] rounded-[3px] space-y-2.5">
+            <div className="p-3.5 bg-raised border border-line rounded-lg space-y-2.5">
               <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2 text-[#f3f4f6]">
-                  <GitBranch className="w-4 h-4 text-[#38bdf8]" />
+                <div className="flex items-center gap-2 text-fg">
+                  <GitBranch className="w-4 h-4 text-lagoon" />
                   <span className="font-semibold">GitHub Integration</span>
                 </div>
-                <span className="px-1.5 py-0.5 text-[10px] bg-[#1d2331] text-[#38bdf8] border border-[#2a354b] rounded-[2px]">
+                <span className="px-1.5 py-0.5 text-[10px] bg-hover text-lagoon border border-line-strong rounded-md">
                   Branch: {gitStatus?.branch || "main"}
                 </span>
               </div>
 
               <div>
-                <label className="text-[10px] text-[#7d8799] uppercase block mb-1">
+                <label className="text-[10px] text-fg-3 uppercase block mb-1">
                   GitHub Repository URL
                 </label>
                 <input
@@ -1313,12 +1259,12 @@ export function RightWorkspacePanel({
                     localStorage.setItem("vox_github_repo", e.target.value);
                   }}
                   placeholder="https://github.com/username/project.git"
-                  className="w-full bg-[#0c0e13] border border-[#2c3445] rounded-[3px] px-2.5 py-1.5 text-white text-xs outline-hidden focus:border-[#38bdf8]"
+                  className="w-full bg-base border border-line-strong rounded-lg px-2.5 py-1.5 text-fg text-xs outline-hidden focus:border-lagoon"
                 />
               </div>
 
               <div>
-                <label className="text-[10px] text-[#7d8799] uppercase block mb-1">
+                <label className="text-[10px] text-fg-3 uppercase block mb-1">
                   Personal Access Token (PAT)
                 </label>
                 <input
@@ -1329,25 +1275,25 @@ export function RightWorkspacePanel({
                     localStorage.setItem("vox_github_token", e.target.value);
                   }}
                   placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                  className="w-full bg-[#0c0e13] border border-[#2c3445] rounded-[3px] px-2.5 py-1.5 text-white text-xs outline-hidden focus:border-[#38bdf8]"
+                  className="w-full bg-base border border-line-strong rounded-lg px-2.5 py-1.5 text-fg text-xs outline-hidden focus:border-lagoon"
                 />
               </div>
             </div>
 
             {/* Vercel Info Card */}
-            <div className="p-3.5 bg-[#141720] border border-[#232835] rounded-[3px] space-y-2.5">
+            <div className="p-3.5 bg-raised border border-line rounded-lg space-y-2.5">
               <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2 text-[#f3f4f6]">
-                  <Cloud className="w-4 h-4 text-[#ea580c]" />
+                <div className="flex items-center gap-2 text-fg">
+                  <Cloud className="w-4 h-4 text-accent" />
                   <span className="font-semibold">Vercel Deployment CLI</span>
                 </div>
-                <span className="px-1.5 py-0.5 text-[10px] bg-[#1d2331] text-[#10b981] border border-[#2a354b] rounded-[2px]">
+                <span className="px-1.5 py-0.5 text-[10px] bg-hover text-moss border border-line-strong rounded-md">
                   CLI Active
                 </span>
               </div>
 
               <div>
-                <label className="text-[10px] text-[#7d8799] uppercase block mb-1">
+                <label className="text-[10px] text-fg-3 uppercase block mb-1">
                   Vercel Token (Opsional jika sudah login via CLI)
                 </label>
                 <input
@@ -1358,7 +1304,7 @@ export function RightWorkspacePanel({
                     localStorage.setItem("vox_vercel_token", e.target.value);
                   }}
                   placeholder="Isi Vercel Token untuk deploy tanpa interaksi login"
-                  className="w-full bg-[#0c0e13] border border-[#2c3445] rounded-[3px] px-2.5 py-1.5 text-white text-xs outline-hidden focus:border-[#ea580c]"
+                  className="w-full bg-base border border-line-strong rounded-lg px-2.5 py-1.5 text-fg text-xs outline-hidden focus:border-accent"
                 />
               </div>
             </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Sparkles, Bot, MousePointer, Play, Check, X, ShieldAlert } from "lucide-react";
+import { Sparkles, Bot, MousePointer, Play, Check, X, ShieldAlert , MousePointer2, Folder } from "lucide-react";
 
 export interface CoworkerAction {
   type: "move" | "click" | "type" | "scroll" | "wait";
@@ -134,9 +134,9 @@ export function CoworkerCursorOperator({
         }, 600);
 
         if (targetElement) {
-          targetElement.classList.add("ring-2", "ring-[#ea580c]", "ring-offset-1");
+          targetElement.classList.add("ring-2", "ring-accent", "ring-offset-1");
           setTimeout(() => {
-            targetElement.classList.remove("ring-2", "ring-[#ea580c]", "ring-offset-1");
+            targetElement.classList.remove("ring-2", "ring-accent", "ring-offset-1");
           }, 400);
 
           try {
@@ -314,7 +314,7 @@ export function CoworkerCursorOperator({
               >
                 <path
                   d="M4.5 3L11.5 21L14.5 13.5L21.5 10.5L4.5 3Z"
-                  fill="#ea580c"
+                  fill="#23786e"
                   stroke="#ffffff"
                   strokeWidth="1.5"
                   strokeLinejoin="round"
@@ -322,15 +322,15 @@ export function CoworkerCursorOperator({
               </svg>
 
               {/* Cursor glow aura */}
-              <div className="absolute inset-0 bg-[#ea580c]/40 blur-xs rounded-full pointer-events-none animate-ping" />
+              <div className="absolute inset-0 bg-accent/40 blur-xs rounded-full pointer-events-none animate-ping" />
             </div>
 
             {/* Operator Label Tag */}
-            <div className="bg-[#12141a]/95 text-[#f3f4f6] text-[11px] font-mono px-2 py-1 rounded-[3px] border border-[#ea580c] shadow-2xl flex items-center gap-1.5 whitespace-nowrap">
-              <Bot className="w-3.5 h-3.5 text-[#ea580c] animate-pulse" />
-              <span className="font-semibold text-[#f97316]">{cursorLabel}</span>
+            <div className="bg-raised/95 text-fg text-[11px] font-mono px-2 py-1 rounded-lg border border-accent shadow-2xl flex items-center gap-1.5 whitespace-nowrap">
+              <Bot className="w-3.5 h-3.5 text-accent animate-pulse" />
+              <span className="font-semibold text-accent-hi">{cursorLabel}</span>
               {cursorState === "clicking" && (
-                <span className="text-[10px] text-[#10b981] font-bold">CLICK!</span>
+                <span className="text-[10px] text-moss font-bold">CLICK!</span>
               )}
             </div>
           </div>
@@ -343,24 +343,24 @@ export function CoworkerCursorOperator({
                 left: `${rip.x}px`,
                 top: `${rip.y}px`,
               }}
-              className="absolute -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full border-2 border-[#ea580c] bg-[#ea580c]/20 pointer-events-none animate-ping"
+              className="absolute -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full border-2 border-accent bg-accent/20 pointer-events-none animate-ping"
             />
           ))}
         </div>
       )}
 
       {/* Floating Coworker Mini Trigger / Controller in Top Right */}
-      <div className="fixed bottom-20 right-4 z-40 font-mono text-xs select-none">
+      <div className="fixed bottom-52 sm:bottom-20 right-3 sm:right-4 z-40 font-mono text-xs select-none">
         {isOperating ? (
-          <div className="flex items-center gap-2 p-2 bg-[#201814] border border-[#ea580c] rounded-[3px] shadow-2xl animate-pulse">
-            <Bot className="w-4 h-4 text-[#ea580c] animate-spin" />
-            <div className="text-[11px] text-[#f3f4f6]">
-              <div className="font-semibold text-[#f97316]">COWORKER ACTIVE</div>
-              <div className="text-[10px] text-[#9ca3af] truncate max-w-[140px]">{currentTask}</div>
+          <div className="flex items-center gap-2 p-2 bg-accent-wash border border-accent rounded-lg shadow-2xl animate-pulse">
+            <Bot className="w-4 h-4 text-accent animate-spin" />
+            <div className="text-[11px] text-fg">
+              <div className="font-semibold text-accent-hi">COWORKER ACTIVE</div>
+              <div className="text-[10px] text-fg-2 truncate max-w-[140px]">{currentTask}</div>
             </div>
             <button
               onClick={handleStop}
-              className="p-1.5 bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[2px] text-[10px]"
+              className="p-1.5 bg-accent hover:bg-accent-hi text-on-accent rounded-md text-[10px]"
               title="Hentikan Coworker"
             >
               STOP
@@ -370,27 +370,27 @@ export function CoworkerCursorOperator({
           <div className="relative">
             <button
               onClick={() => setIsPanelOpen(!isPanelOpen)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-[#181c26] hover:bg-[#222838] text-[#f3f4f6] border border-[#2e374b] hover:border-[#ea580c]/80 rounded-[3px] shadow-xl transition-all"
+              className="lift flex items-center gap-1.5 px-3.5 py-2 bg-raised/90 backdrop-blur hover:bg-raised text-fg border border-line hover:border-accent/60 rounded-full shadow-[0_12px_28px_-16px_rgba(0,0,0,0.6)] font-sans cursor-pointer"
               title="Autonomous Coworker & Cursor Control"
             >
-              <Bot className="w-4 h-4 text-[#ea580c]" />
-              <span className="font-semibold text-[11px] hidden sm:inline">COWORKER AI</span>
+              <Bot className="w-4 h-4 text-accent" />
+              <span className="font-medium text-xs hidden sm:inline">Coworker</span>
             </button>
 
             {/* Quick Popout Menu */}
             {isPanelOpen && (
-              <div className="absolute bottom-11 right-0 w-64 bg-[#12151d] border border-[#262e40] rounded-[3px] shadow-2xl p-3 space-y-2.5 animate-fadeIn">
-                <div className="flex items-center justify-between pb-2 border-b border-[#242b3b]">
-                  <div className="flex items-center gap-1.5 text-[#f3f4f6] font-semibold text-xs">
-                    <Bot className="w-3.5 h-3.5 text-[#ea580c]" />
+              <div className="absolute bottom-11 right-0 w-64 bg-raised border border-line-strong rounded-lg shadow-2xl p-3 space-y-2.5 animate-rise">
+                <div className="flex items-center justify-between pb-2 border-b border-line">
+                  <div className="flex items-center gap-1.5 text-fg font-semibold text-xs">
+                    <Bot className="w-3.5 h-3.5 text-accent" />
                     <span>COWORKER AGENT</span>
                   </div>
-                  <button onClick={() => setIsPanelOpen(false)} className="text-[#78849b] hover:text-white">
+                  <button onClick={() => setIsPanelOpen(false)} className="text-fg-3 hover:text-fg">
                     <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
-                <p className="text-[10px] text-[#94a0b5] leading-relaxed">
+                <p className="text-[10px] text-fg-2 leading-relaxed">
                   Asisten coworker yang dapat menggerakkan kursor, mengeklik tab, dan mendemonstrasikan studio secara otonom.
                 </p>
 
@@ -400,7 +400,7 @@ export function CoworkerCursorOperator({
                       setIsPanelOpen(false);
                       runAutonomousTour();
                     }}
-                    className="w-full py-1.5 px-2.5 bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                    className="w-full py-1.5 px-2.5 bg-accent hover:bg-accent-hi text-on-accent rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
                   >
                     <Play className="w-3 h-3" />
                     <span>JALANKAN TOUR OTOMATIS</span>
@@ -412,9 +412,9 @@ export function CoworkerCursorOperator({
                       if (onOpenRightPanel) onOpenRightPanel();
                       await clickElementBySelector("button:has(.lucide-globe), button:contains('PREVIEW')", "Tab Preview");
                     }}
-                    className="w-full py-1.5 px-2 bg-[#1b202c] hover:bg-[#252d3e] text-[#cbd5e1] border border-[#2d374d] rounded-[3px] text-[11px] text-left transition-colors"
+                    className="w-full py-1.5 px-2 bg-raised hover:bg-hover text-fg border border-line-strong rounded-lg text-[11px] text-left transition-colors"
                   >
-                    🖱️ Gerakkan &amp; Klik Tab Preview
+                    <MousePointer2 className="inline w-3 h-3 mr-1" />Gerakkan &amp; Klik Tab Preview
                   </button>
 
                   <button
@@ -423,9 +423,9 @@ export function CoworkerCursorOperator({
                       if (onOpenRightPanel) onOpenRightPanel();
                       await clickElementBySelector("button:has(.lucide-hard-drive), button:contains('EXPLORER')", "Tab Explorer");
                     }}
-                    className="w-full py-1.5 px-2 bg-[#1b202c] hover:bg-[#252d3e] text-[#cbd5e1] border border-[#2d374d] rounded-[3px] text-[11px] text-left transition-colors"
+                    className="w-full py-1.5 px-2 bg-raised hover:bg-hover text-fg border border-line-strong rounded-lg text-[11px] text-left transition-colors"
                   >
-                    📁 Gerakkan &amp; Klik Tab Explorer
+                    <Folder className="inline w-3 h-3 mr-1" />Gerakkan &amp; Klik Tab Explorer
                   </button>
                 </div>
               </div>

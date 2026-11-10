@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { projectDir } from "@/lib/projectDir";
 
 const execAsync = promisify(exec);
 
@@ -9,7 +10,7 @@ const BLOCKED_PATTERNS = [/rm\s+-rf\s+\/($|\s)/, /mkfs/, /dd\s+if=/, />\s*\/dev\
 
 export async function POST(req: Request) {
   try {
-    const { command } = await req.json();
+    const { command, projectId } = await req.json();
 
     if (!command || typeof command !== "string" || !command.trim()) {
       return NextResponse.json({ success: false, error: "Command is required" }, { status: 400 });
@@ -28,7 +29,8 @@ export async function POST(req: Request) {
     }
 
     const startTime = Date.now();
-    const workingDir = process.cwd();
+    // Terminal bekerja di folder PROJECT AKTIF, bukan folder aplikasi Jarvis
+    const workingDir = await projectDir(projectId);
 
     try {
       const { stdout, stderr } = await execAsync(cleanCommand, {

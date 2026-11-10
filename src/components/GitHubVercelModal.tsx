@@ -164,32 +164,32 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs font-sans">
-      <div className="relative w-full max-w-xl bg-[#14161b] border border-[#2e3340] rounded-[3px] p-6 shadow-2xl text-[#e4e6ea]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/44 p-4 backdrop-blur-xs font-sans">
+      <div className="relative w-full max-w-xl bg-raised border border-line-strong rounded-lg p-6 shadow-2xl text-fg">
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-[#252a35]">
+        <div className="flex items-center justify-between pb-4 border-b border-line">
           <div className="flex items-center gap-2">
-            <GitBranch className="w-5 h-5 text-[#ea580c]" />
-            <h2 className="text-base font-semibold tracking-wide text-[#f3f4f6]">
+            <GitBranch className="w-5 h-5 text-accent" />
+            <h2 className="text-base font-semibold tracking-wide text-fg">
               Koneksi GitHub &amp; Vercel Deployment
             </h2>
           </div>
           <button
             onClick={onClose}
-            className="p-1 text-[#8b93a4] hover:text-white hover:bg-[#20242e] rounded-[3px] transition-colors"
+            className="p-1 text-fg-3 hover:text-fg hover:bg-hover rounded-lg transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Buttons */}
-        <div className="flex border-b border-[#252a35] mt-4">
+        <div className="flex border-b border-line mt-4">
           <button
             onClick={() => setActiveTab("github")}
             className={`py-2 px-4 text-xs font-mono font-medium flex items-center gap-2 border-b-2 transition-colors ${
               activeTab === "github"
-                ? "border-[#ea580c] text-[#f97316]"
-                : "border-transparent text-[#8b93a4] hover:text-[#f3f4f6]"
+                ? "border-accent text-accent-hi"
+                : "border-transparent text-fg-3 hover:text-fg"
             }`}
           >
             <GitBranch className="w-3.5 h-3.5" />
@@ -199,8 +199,8 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
             onClick={() => setActiveTab("vercel")}
             className={`py-2 px-4 text-xs font-mono font-medium flex items-center gap-2 border-b-2 transition-colors ${
               activeTab === "vercel"
-                ? "border-[#ea580c] text-[#f97316]"
-                : "border-transparent text-[#8b93a4] hover:text-[#f3f4f6]"
+                ? "border-accent text-accent-hi"
+                : "border-transparent text-fg-3 hover:text-fg"
             }`}
           >
             <Cloud className="w-3.5 h-3.5" />
@@ -212,14 +212,14 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
         {activeTab === "github" && (
           <div className="mt-4 space-y-4 text-xs">
             {/* Status overview */}
-            <div className="p-3 bg-[#191d26] border border-[#2b3240] rounded-[3px] flex items-center justify-between">
+            <div className="p-3 bg-hover border border-line-strong rounded-lg flex items-center justify-between">
               <div>
-                <span className="text-[#8892a4]">Status Git Lokal: </span>
-                <span className="font-semibold text-[#f3f4f6]">
+                <span className="text-fg-3">Status Git Lokal: </span>
+                <span className="font-semibold text-fg">
                   {gitStatus?.isInitialized ? "Terkoneksi (Git Ready)" : "Belum Diinisialisasi"}
                 </span>
                 {gitStatus?.branch && (
-                  <span className="ml-2 px-1.5 py-0.5 bg-[#252b38] text-[#38bdf8] rounded-[2px] font-mono text-[10px]">
+                  <span className="ml-2 px-1.5 py-0.5 bg-hover text-lagoon rounded-md font-mono text-[10px]">
                     branch: {gitStatus.branch}
                   </span>
                 )}
@@ -228,7 +228,7 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
                 <button
                   onClick={handleInitGit}
                   disabled={isGitLoading}
-                  className="px-2.5 py-1 bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] text-[11px] font-mono"
+                  className="px-2.5 py-1 bg-accent hover:bg-accent-hi text-on-accent rounded-lg text-[11px] font-mono"
                 >
                   Init Git
                 </button>
@@ -237,7 +237,7 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
 
             {/* GitHub Token & Repo URL */}
             <div className="space-y-1.5">
-              <label className="text-[11px] font-mono text-[#a1a7b5] uppercase">
+              <label className="text-[11px] font-mono text-fg-2 uppercase">
                 GitHub Personal Access Token (PAT)
               </label>
               <input
@@ -245,12 +245,12 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
                 placeholder="ghp_... atau github_pat_..."
                 value={gitToken}
                 onChange={(e) => setGitToken(e.target.value)}
-                className="w-full bg-[#1b1e25] border border-[#2e3442] focus:border-[#ea580c] rounded-[3px] px-3 py-2 text-xs text-[#f3f4f6] font-mono outline-hidden"
+                className="w-full bg-hover border border-line-strong focus:border-accent rounded-lg px-3 py-2 text-xs text-fg font-mono outline-hidden"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[11px] font-mono text-[#a1a7b5] uppercase">
+              <label className="text-[11px] font-mono text-fg-2 uppercase">
                 Repository GitHub URL
               </label>
               <div className="flex gap-2">
@@ -259,12 +259,12 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
                   placeholder="https://github.com/username/voice-ai.git"
                   value={repoUrl}
                   onChange={(e) => setRepoUrl(e.target.value)}
-                  className="flex-1 bg-[#1b1e25] border border-[#2e3442] focus:border-[#ea580c] rounded-[3px] px-3 py-2 text-xs text-[#f3f4f6] font-mono outline-hidden"
+                  className="flex-1 bg-hover border border-line-strong focus:border-accent rounded-lg px-3 py-2 text-xs text-fg font-mono outline-hidden"
                 />
                 <button
                   onClick={handleSetRemote}
                   disabled={!repoUrl.trim() || isGitLoading}
-                  className="px-3 py-2 bg-[#222734] hover:bg-[#2c3344] text-[#c0c6d4] hover:text-white rounded-[3px] border border-[#333c4f] font-mono text-xs transition-colors"
+                  className="px-3 py-2 bg-raised hover:bg-hover text-fg-2 hover:text-fg rounded-lg border border-line-strong font-mono text-xs transition-colors"
                 >
                   Set Remote
                 </button>
@@ -272,14 +272,14 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[11px] font-mono text-[#a1a7b5] uppercase">
+              <label className="text-[11px] font-mono text-fg-2 uppercase">
                 Pesan Commit
               </label>
               <input
                 type="text"
                 value={commitMsg}
                 onChange={(e) => setCommitMsg(e.target.value)}
-                className="w-full bg-[#1b1e25] border border-[#2e3442] focus:border-[#ea580c] rounded-[3px] px-3 py-2 text-xs text-[#f3f4f6] font-mono outline-hidden"
+                className="w-full bg-hover border border-line-strong focus:border-accent rounded-lg px-3 py-2 text-xs text-fg font-mono outline-hidden"
               />
             </div>
 
@@ -288,7 +288,7 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
               <button
                 onClick={handleCommitAndPush}
                 disabled={isGitLoading}
-                className="flex-1 py-2.5 bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] font-mono font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                className="flex-1 py-2.5 bg-accent hover:bg-accent-hi text-on-accent rounded-lg font-mono font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
               >
                 {isGitLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UploadCloud className="w-3.5 h-3.5" />}
                 <span>Commit &amp; Push ke GitHub</span>
@@ -296,7 +296,7 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
               <button
                 onClick={fetchGitStatus}
                 title="Cek Status"
-                className="p-2.5 bg-[#1e232d] hover:bg-[#29303d] text-[#cbd5e1] border border-[#2e3544] rounded-[3px]"
+                className="p-2.5 bg-raised hover:bg-hover text-fg border border-line-strong rounded-lg"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>
@@ -305,10 +305,10 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
             {/* Status result */}
             {gitResult && (
               <div
-                className={`p-3 rounded-[3px] border text-xs flex items-center gap-2 ${
+                className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${
                   gitResult.success
-                    ? "bg-[#102419] border-[#10b981] text-[#10b981]"
-                    : "bg-[#291717] border-[#ef4444] text-[#ef4444]"
+                    ? "bg-moss-wash border-moss text-moss"
+                    : "bg-danger-wash border-danger text-danger"
                 }`}
               >
                 {gitResult.success ? <Check className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
@@ -321,15 +321,15 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
         {/* Tab 2: Vercel */}
         {activeTab === "vercel" && (
           <div className="mt-4 space-y-4 text-xs">
-            <div className="p-3 bg-[#191d26] border border-[#2b3240] rounded-[3px] space-y-1">
-              <div className="text-[#8892a4]">Vercel CLI Engine:</div>
-              <div className="font-mono text-[#38bdf8] text-[11px] truncate">
+            <div className="p-3 bg-hover border border-line-strong rounded-lg space-y-1">
+              <div className="text-fg-3">Vercel CLI Engine:</div>
+              <div className="font-mono text-lagoon text-[11px] truncate">
                 /Users/indragandi/npm-global/bin/vercel (Ready)
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[11px] font-mono text-[#a1a7b5] uppercase">
+              <label className="text-[11px] font-mono text-fg-2 uppercase">
                 Vercel Token (Opsional jika sudah login via CLI)
               </label>
               <input
@@ -337,7 +337,7 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
                 placeholder="Masukkan Vercel Token untuk deploy instan..."
                 value={vercelToken}
                 onChange={(e) => setVercelToken(e.target.value)}
-                className="w-full bg-[#1b1e25] border border-[#2e3442] focus:border-[#ea580c] rounded-[3px] px-3 py-2 text-xs text-[#f3f4f6] font-mono outline-hidden"
+                className="w-full bg-hover border border-line-strong focus:border-accent rounded-lg px-3 py-2 text-xs text-fg font-mono outline-hidden"
               />
             </div>
 
@@ -345,16 +345,16 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
               <button
                 onClick={() => handleDeployVercel(false)}
                 disabled={isVercelLoading}
-                className="py-2.5 bg-[#1f2430] hover:bg-[#2b3242] text-[#f3f4f6] border border-[#333d50] rounded-[3px] font-mono font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                className="py-2.5 bg-raised hover:bg-hover text-fg border border-line-strong rounded-lg font-mono font-medium flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
               >
-                {isVercelLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin text-[#ea580c]" /> : <Cloud className="w-3.5 h-3.5" />}
+                {isVercelLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" /> : <Cloud className="w-3.5 h-3.5" />}
                 <span>Deploy Preview</span>
               </button>
 
               <button
                 onClick={() => handleDeployVercel(true)}
                 disabled={isVercelLoading}
-                className="py-2.5 bg-[#ea580c] hover:bg-[#f97316] text-white rounded-[3px] font-mono font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 shadow-xs"
+                className="py-2.5 bg-accent hover:bg-accent-hi text-on-accent rounded-lg font-mono font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 shadow-xs"
               >
                 {isVercelLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UploadCloud className="w-3.5 h-3.5" />}
                 <span>Deploy Production</span>
@@ -364,10 +364,10 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
             {/* Deploy result banner */}
             {deployResult && (
               <div
-                className={`p-3 rounded-[3px] border text-xs space-y-1.5 ${
+                className={`p-3 rounded-lg border text-xs space-y-1.5 ${
                   deployResult.success
-                    ? "bg-[#102419] border-[#10b981] text-[#10b981]"
-                    : "bg-[#291717] border-[#ef4444] text-[#ef4444]"
+                    ? "bg-moss-wash border-moss text-moss"
+                    : "bg-danger-wash border-danger text-danger"
                 }`}
               >
                 <div className="flex items-center gap-2 font-medium">
@@ -379,10 +379,10 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
                     href={deployResult.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-white bg-[#0e1014] px-2.5 py-1 rounded-[2px] font-mono hover:underline mt-1"
+                    className="inline-flex items-center gap-1 text-fg bg-base px-2.5 py-1 rounded-md font-mono hover:underline mt-1"
                   >
                     <span>{deployResult.url}</span>
-                    <ArrowUpRight className="w-3 h-3 text-[#f97316]" />
+                    <ArrowUpRight className="w-3 h-3 text-accent-hi" />
                   </a>
                 )}
               </div>
@@ -391,10 +391,10 @@ export function GitHubVercelModal({ isOpen, onClose, onVoiceFeedback }: GitHubVe
         )}
 
         {/* Footer */}
-        <div className="mt-6 pt-4 border-t border-[#252a35] flex justify-end">
+        <div className="mt-6 pt-4 border-t border-line flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-xs bg-[#1a1c22] hover:bg-[#222630] text-[#9ca3af] hover:text-white rounded-[3px] border border-[#2e3442] transition-colors"
+            className="px-4 py-2 text-xs bg-raised hover:bg-hover text-fg-2 hover:text-fg rounded-lg border border-line-strong transition-colors"
           >
             Tutup
           </button>

@@ -49,7 +49,9 @@ async function scanProjectDir(dir: string, baseDir: string, depth = 0): Promise<
       const relPath = path.relative(baseDir, fullPath);
 
       if (entry.isDirectory()) {
-        const children = await scanProjectDir(fullPath, baseDir, depth + 1);
+        // folder besar hasil install: tampilkan sebagai folder kosong, jangan ditelusuri
+        const heavy = ["node_modules", "dist", "build", "vendor", "__pycache__"].includes(entry.name);
+        const children = heavy ? [] : await scanProjectDir(fullPath, baseDir, depth + 1);
         nodes.push({
           name: entry.name,
           relativePath: relPath,
@@ -85,30 +87,6 @@ async function seedStarterFiles(projectDir: string, projectName: string) {
   await fs.mkdir(path.join(projectDir, "assets"), { recursive: true });
   await fs.mkdir(path.join(projectDir, "documents"), { recursive: true });
 
-  const htmlContent = `<!DOCTYPE html>
-<html lang="id">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${projectName} — User Workspace</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-[#0f1117] text-[#f3f4f6] font-sans min-h-screen p-8">
-  <div class="max-w-2xl mx-auto bg-[#181b24] border border-[#2b3345] rounded-[3px] p-6 shadow-2xl">
-    <div class="flex items-center gap-2 mb-4 pb-3 border-b border-[#252c3c]">
-      <span class="w-2.5 h-2.5 bg-[#ea580c] rounded-[1px]"></span>
-      <h1 class="text-xl font-bold font-mono tracking-wide">${projectName}</h1>
-    </div>
-    <p class="text-sm text-[#9ca3af] leading-relaxed mb-4">
-      Ruang kerja proyek pengguna yang terisolasi aman. Anda dapat menambahkan file HTML, CSS, JavaScript, atau dokumen invoice & laporan di sini.
-    </p>
-    <div class="bg-[#101218] p-3 rounded-[3px] border border-[#232938] text-xs font-mono text-[#38bdf8]">
-      Status: Project Workspace Active & Ready
-    </div>
-  </div>
-</body>
-</html>`;
-
   const readmeContent = `# ${projectName}
 
 Ruang kerja proyek akun khusus di VOX·AI Studio.
@@ -120,7 +98,6 @@ Dibuat pada: ${new Date().toLocaleDateString("id-ID")}
 - \`documents/\`: Dokumen PDF, invoice, dan laporan
 `;
 
-  await fs.writeFile(path.join(projectDir, "index.html"), htmlContent, "utf-8");
   await fs.writeFile(path.join(projectDir, "README.md"), readmeContent, "utf-8");
 }
 

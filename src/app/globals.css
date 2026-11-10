@@ -1,26 +1,410 @@
 @import "tailwindcss";
 
+/* ------------------------------------------------------------------
+   Design system diadaptasi dari gaya studio fraxbit.com:
+   putih bersih, tinta #121517, satu aksen merah #ef233c, Geist,
+   tombol pill dengan "chip" panah, motion ease-out-expo.
+   ------------------------------------------------------------------ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --canvas: #ffffff;
+  --base: #f6f7f8;
+  --raised: #ffffff;
+  --hover: #eceeef;
+
+  --line: #dde0e2;
+  --line-strong: #c3c8cb;
+
+  --fg: #121517;
+  --fg-2: #373d41;
+  --fg-3: #6f777c;
+  --fg-4: #9aa1a6;
+
+  --accent: #ef233c;
+  --accent-hi: #ff3b52;
+  --accent-wash: #fde6e9;
+
+  --glow: #0e7c8f;
+  --glow-wash: #def3f6;
+
+  --lagoon: #2563eb;
+  --lagoon-wash: #e3ecfd;
+  --moss: #16a34a;
+  --moss-wash: #dcfce7;
+  --danger: #dc2626;
+  --danger-wash: #fee2e2;
+
+  --ink: #121517;
+  --on-ink: #ffffff;
+  --scrim: #0b0d0e;
+  --on-accent: #ffffff;
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
+  color-scheme: light;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+:root[data-theme="dark"] {
+  --canvas: #0b0d0e;
+  --base: #0d1012;
+  --raised: #15191c;
+  --hover: #1b1f22;
+  --line: #24292c;
+  --line-strong: #373d41;
+  --fg: #f6f7f8;
+  --fg-2: #c3c8cb;
+  --fg-3: #9aa1a6;
+  --fg-4: #6f777c;
+  --accent: #ef233c;
+  --accent-hi: #ff4d61;
+  --accent-wash: #2b1115;
+  --glow: #46ecd5;
+  --glow-wash: #0a2b2a;
+  --lagoon: #77d4ff;
+  --lagoon-wash: #0d2230;
+  --moss: #22c55e;
+  --moss-wash: #0f2a1b;
+  --danger: #ff6b6b;
+  --danger-wash: #351616;
+  --ink: #f6f7f8;
+  --on-ink: #121517;
+  --scrim: #000000;
+  --on-accent: #ffffff;
+  color-scheme: dark;
 }
-
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    --canvas: #0b0d0e;
+    --base: #0d1012;
+    --raised: #15191c;
+    --hover: #1b1f22;
+    --line: #24292c;
+    --line-strong: #373d41;
+    --fg: #f6f7f8;
+    --fg-2: #c3c8cb;
+    --fg-3: #9aa1a6;
+    --fg-4: #6f777c;
+    --accent: #ef233c;
+    --accent-hi: #ff4d61;
+    --accent-wash: #2b1115;
+    --glow: #46ecd5;
+    --glow-wash: #0a2b2a;
+    --lagoon: #77d4ff;
+    --lagoon-wash: #0d2230;
+    --moss: #22c55e;
+    --moss-wash: #0f2a1b;
+    --danger: #ff6b6b;
+    --danger-wash: #351616;
+    --ink: #f6f7f8;
+    --on-ink: #121517;
+    --scrim: #000000;
+    --on-accent: #ffffff;
+    color-scheme: dark;
   }
 }
 
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-base: var(--base);
+  --color-raised: var(--raised);
+  --color-hover: var(--hover);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-fg-4: var(--fg-4);
+  --color-accent: var(--accent);
+  --color-accent-hi: var(--accent-hi);
+  --color-accent-wash: var(--accent-wash);
+  --color-glow: var(--glow);
+  --color-glow-wash: var(--glow-wash);
+  --color-lagoon: var(--lagoon);
+  --color-lagoon-wash: var(--lagoon-wash);
+  --color-moss: var(--moss);
+  --color-moss-wash: var(--moss-wash);
+  --color-danger: var(--danger);
+  --color-danger-wash: var(--danger-wash);
+  --color-ink: var(--ink);
+  --color-on-ink: var(--on-ink);
+  --color-scrim: var(--scrim);
+  --color-on-accent: var(--on-accent);
+
+  --font-sans: var(--nf-body), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--nf-body), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--nf-mono), ui-monospace, monospace;
+
+  --text-h1: clamp(2.25rem, 1.5rem + 3.3vw, 5.5rem);
+  --text-h1--line-height: 1;
+  --text-h1--letter-spacing: -0.03em;
+}
+
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--canvas);
+  color: var(--fg);
+}
+body {
+  font-family: var(--nf-body), ui-sans-serif, system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+::selection {
+  background: var(--accent);
+  color: #fff;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Scrollbar disembunyikan total; area tetap bisa di-scroll */
+* { scrollbar-width: none; -ms-overflow-style: none; }
+*::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+@layer components {
+/* ======================= Tombol (fraxbit .btn) =======================
+   <button class="btn" data-variant data-size data-icon>
+     <span class="btn__fill"/> <span class="btn__label"/> <span class="btn__chip"><ArrowIcon/></span>
+   Hover: lingkaran fill menyebar dari chip, label geser, chip berputar 45°. */
+.btn {
+  --btn-bg: var(--ink);
+  --btn-fg: var(--on-ink);
+  --btn-border: transparent;
+  --btn-fill: var(--accent);
+  --btn-fill-fg: #fff;
+  --btn-chip: var(--accent);
+  --btn-chip-fg: #fff;
+  --btn-h: 3.25rem;
+  --btn-px: 1.5rem;
+  --btn-font: 0.8125rem;
+  --btn-chip-inset: 0.3125rem;
+  --btn-chip-size: calc(var(--btn-h) - var(--btn-chip-inset) * 2);
+  --btn-origin: calc(100% - var(--btn-h) / 2);
+  isolation: isolate;
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 1rem;
+  height: var(--btn-h);
+  padding-inline: var(--btn-px);
+  border-radius: 999px;
+  background: var(--btn-bg);
+  box-shadow: inset 0 0 0 1px var(--btn-border);
+  color: var(--btn-fg);
+  font-size: var(--btn-font);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.5s var(--ease-out-expo), box-shadow 0.5s var(--ease-out-expo), scale 0.3s var(--ease-out-expo);
+}
+.btn { max-width: 100%; }
+.btn__label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.btn[data-icon] { padding-right: var(--btn-chip-inset); }
+.btn:not([data-icon]) { --btn-origin: 50%; }
+.btn:active { scale: 0.97; }
+.btn:disabled { opacity: 0.5; pointer-events: none; }
+.btn__fill {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--btn-fill);
+  clip-path: circle(0 at var(--btn-origin) 50%);
+  transition: clip-path 0.7s var(--ease-out-expo);
+}
+.btn__label { transition: translate 0.6s var(--ease-out-expo); }
+.btn__chip {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--btn-chip-size);
+  height: var(--btn-chip-size);
+  border-radius: 999px;
+  background: var(--btn-chip);
+  color: var(--btn-chip-fg);
+  font-size: calc(var(--btn-chip-size) * 0.5);
+  transition: background-color 0.5s var(--ease-out-expo), color 0.5s var(--ease-out-expo), rotate 0.6s var(--ease-out-expo);
+}
+.btn:is(:hover, :focus-visible) { color: var(--btn-fill-fg); --btn-border: transparent; }
+.btn:is(:hover, :focus-visible) .btn__fill { clip-path: circle(150% at var(--btn-origin) 50%); }
+.btn:is(:hover, :focus-visible) .btn__label { translate: 0.25rem; }
+.btn:is(:hover, :focus-visible) .btn__chip {
+  background: color-mix(in oklab, var(--btn-fill-fg) 16%, transparent);
+  color: var(--btn-fill-fg);
+  rotate: 45deg;
+}
+.btn[data-variant="accent"] { --btn-bg: var(--accent); --btn-fg: #fff; --btn-fill: var(--ink); --btn-fill-fg: var(--on-ink); --btn-chip: rgb(255 255 255 / 0.18); }
+.btn[data-variant="outline"] {
+  --btn-bg: transparent;
+  --btn-fg: var(--fg);
+  --btn-border: color-mix(in oklab, var(--fg) 20%, transparent);
+  --btn-fill: var(--ink);
+  --btn-fill-fg: var(--on-ink);
+  --btn-chip: var(--ink);
+  --btn-chip-fg: var(--on-ink);
+}
+.btn[data-size="xs"] { --btn-h: 1.75rem; --btn-px: 0.75rem; --btn-font: 0.625rem; --btn-chip-inset: 0.25rem; gap: 0.5rem; }
+.btn[data-size="sm"] { --btn-h: 2rem; --btn-px: 0.875rem; --btn-font: 0.6875rem; --btn-chip-inset: 0.25rem; gap: 0.75rem; }
+.btn[data-size="lg"] { --btn-h: 3.75rem; --btn-px: 1.875rem; --btn-font: 0.875rem; --btn-chip-inset: 0.375rem; }
+
+/* Ikon panah ganda: panah lama terbang ke kanan-atas, panah baru masuk */
+.arrow-icon { position: relative; display: inline-block; width: 1em; height: 1em; overflow: hidden; }
+.arrow-icon__svg { position: absolute; inset: 0; width: 100%; height: 100%; transition: transform 0.6s var(--ease-out-expo); }
+.arrow-icon__svg:last-child { transform: translate(-120%, 120%); }
+:is(a, button):hover .arrow-icon__svg:first-child { transform: translate(120%, -120%); }
+:is(a, button):hover .arrow-icon__svg:last-child { transform: translate(0); }
+
+/* Tombol ikon bulat (aksi kecil) */
+.icon-btn {
+  display: grid; place-items: center;
+  width: 2rem; height: 2rem; border-radius: 999px;
+  color: var(--fg-3);
+  box-shadow: inset 0 0 0 1px transparent;
+  transition: background-color 0.4s var(--ease-out-expo), color 0.4s var(--ease-out-expo), box-shadow 0.4s var(--ease-out-expo), scale 0.3s var(--ease-out-expo);
+  cursor: pointer;
+}
+.icon-btn:hover { color: var(--fg); background: var(--hover); }
+.icon-btn:active { scale: 0.92; }
+.icon-btn[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+
+/* Link nav dengan garis bawah yang menggambar dari kiri */
+.nav-link { position: relative; padding-block: 0.25rem; color: var(--fg-3); transition: color 0.4s var(--ease-out-expo); }
+.nav-link::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 1px; background: currentColor;
+  transform: scaleX(0); transform-origin: right; transition: transform 0.6s var(--ease-out-expo);
+}
+.nav-link:hover, .nav-link[aria-pressed="true"] { color: var(--fg); }
+.nav-link:hover::after, .nav-link[aria-pressed="true"]::after { transform: scaleX(1); transform-origin: left; }
+
+/* ======================= Motion ======================= */
+@keyframes intro-rise { 0% { translate: 0 108%; } }
+@keyframes intro-fade-up { 0% { opacity: 0; translate: 0 1.25rem; } }
+@keyframes intro-draw { 0% { scale: 0 1; } }
+@keyframes card-in { 0% { opacity: 0; translate: 0 1.5rem; } }
+@keyframes chat-in { 0% { opacity: 0; translate: 0 0.75rem; } }
+@keyframes chat-dot { 0%, 60%, 100% { opacity: 0.3; translate: 0; } 30% { opacity: 1; translate: 0 -0.25rem; } }
+@keyframes caret-blink { 50% { opacity: 0; } }
+@keyframes pulse-ring { 0% { opacity: 0.6; scale: 1; } 70%, 100% { opacity: 0; scale: 2.8; } }
+@keyframes marquee { to { translate: -50%; } }
+
+/* Judul: tiap baris dibungkus .intro-mask lalu .intro-line naik dari bawah */
+.intro-mask { display: block; overflow: hidden; padding-bottom: 0.08em; }
+.intro-line { display: block; animation: intro-rise 1.4s var(--ease-out-expo) var(--d, 0s) both; }
+.intro { animation: intro-fade-up 1.2s var(--ease-out-expo) var(--d, 0s) both; }
+.intro-rule { transform-origin: 0; animation: intro-draw 1.6s var(--ease-out-expo) var(--d, 0s) both; }
+.card-in { animation: card-in 0.7s var(--ease-out-expo) both; animation-delay: calc(var(--i, 0) * 60ms); }
+.chat-in { animation: chat-in 0.5s var(--ease-out-expo) both; }
+
+/* Alias lama supaya komponen lain tetap beranimasi */
+.animate-rise, .animate-bubble { animation: chat-in 0.5s var(--ease-out-expo) both; }
+.enter-down, .enter-left, .enter-right, .enter-orb { animation: intro-fade-up 1s var(--ease-out-expo) both; }
+.lift { transition: scale 0.3s var(--ease-out-expo), background-color 0.3s, color 0.3s; }
+.lift:active { scale: 0.94; }
+
+.pulse-dot { position: relative; display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: #22c55e; }
+.pulse-dot::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: inherit; animation: pulse-ring 2s var(--ease-out-expo) infinite; }
+
+.chat-dots { display: inline-flex; gap: 0.3rem; align-items: center; }
+.chat-dots i { width: 0.4rem; height: 0.4rem; border-radius: 999px; background: currentColor; animation: chat-dot 1.1s ease-in-out infinite; }
+.chat-dots i:nth-child(2) { animation-delay: 0.15s; }
+.chat-dots i:nth-child(3) { animation-delay: 0.3s; }
+.chat-caret { display: inline-block; width: 0.45em; height: 1em; margin-left: 0.1em; vertical-align: -0.15em; background: var(--accent); animation: caret-blink 1s step-end infinite; }
+
+.marquee { display: flex; width: max-content; animation: marquee 40s linear infinite; }
+.marquee:hover { animation-play-state: paused; }
+
+/* Kartu bernomor: angka & garis memanjang saat hover */
+.num-card { position: relative; transition: background-color 0.5s var(--ease-out-expo); }
+.num-card .num-card__rule { transform-origin: left; transform: scaleX(0.15); transition: transform 0.8s var(--ease-out-expo); }
+.num-card:hover .num-card__rule { transform: scaleX(1); }
+.num-card .num-card__arrow { opacity: 0; translate: -0.5rem 0; transition: opacity 0.5s var(--ease-out-expo), translate 0.5s var(--ease-out-expo); }
+.num-card:hover .num-card__arrow { opacity: 1; translate: 0 0; }
+
+@keyframes shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+.animate-shimmer {
+  background-image: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 8%, transparent), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s linear infinite;
+}
+@keyframes glow-breathe { 0%, 100% { scale: 1; } 50% { scale: 1.12; } }
+.animate-glow { animation: glow-breathe 2.4s ease-in-out infinite; }
+
+}
+
+/* Transisi tema: lingkaran membesar dari tombol tema (View Transitions API) */
+::view-transition-old(root),
+::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-new(root) {
+  clip-path: circle(0 at var(--vt-x, 50%) var(--vt-y, 0%));
+  animation: theme-reveal 650ms var(--ease-in-out-quart) forwards;
+}
+@keyframes theme-reveal { to { clip-path: circle(var(--vt-r, 150vmax) at var(--vt-x, 50%) var(--vt-y, 0%)); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+code, pre, .font-mono {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+
+@layer components {
+/* Permukaan tinta (bubble user): balik warna teks untuk anak-anaknya */
+.on-ink {
+  --fg: var(--on-ink);
+  --fg-2: color-mix(in oklab, var(--on-ink) 85%, transparent);
+  --fg-3: color-mix(in oklab, var(--on-ink) 65%, transparent);
+  --fg-4: color-mix(in oklab, var(--on-ink) 45%, transparent);
+  --hover: color-mix(in oklab, var(--on-ink) 12%, transparent);
+  --line: color-mix(in oklab, var(--on-ink) 18%, transparent);
+  color: var(--on-ink);
+}
+
+/* Chip pill: fill tinta menyebar dari tengah saat hover */
+.chip {
+  position: relative; isolation: isolate; overflow: hidden;
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  height: 2rem; padding-inline: 0.875rem; border-radius: 999px;
+  font-size: 12px; font-weight: 500; letter-spacing: 0.02em; white-space: nowrap;
+  color: var(--fg-2); box-shadow: inset 0 0 0 1px var(--line);
+  transition: color 0.5s var(--ease-out-expo), scale 0.3s var(--ease-out-expo);
+  cursor: pointer;
+}
+.chip::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; background: var(--ink);
+  clip-path: circle(0 at 50% 50%); transition: clip-path 0.6s var(--ease-out-expo);
+}
+.chip:hover { color: var(--on-ink); }
+.chip:hover::before { clip-path: circle(100% at 50% 50%); }
+.chip:active { scale: 0.96; }
+.chip:disabled { opacity: 0.4; pointer-events: none; }
+
+/* Tombol bulat aksi utama (mic / kirim) */
+.round-btn {
+  position: relative; isolation: isolate; overflow: hidden;
+  display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 999px;
+  transition: scale 0.3s var(--ease-out-expo), background-color 0.5s var(--ease-out-expo), color 0.5s var(--ease-out-expo);
+  cursor: pointer;
+}
+.round-btn::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; background: var(--accent);
+  clip-path: circle(0 at 50% 50%); transition: clip-path 0.6s var(--ease-out-expo);
+}
+.round-btn:hover::before { clip-path: circle(100% at 50% 50%); }
+.round-btn:hover { color: #fff; }
+.round-btn:active { scale: 0.92; }
+.round-btn:disabled { opacity: 0.35; pointer-events: none; }
+.round-btn[data-accent]::before { background: var(--ink); }
+.round-btn[data-accent]:hover { color: var(--on-ink); }
+.round-btn:hover .arrow-icon { rotate: 45deg; }
+.round-btn .arrow-icon { transition: rotate 0.6s var(--ease-out-expo); }
 }

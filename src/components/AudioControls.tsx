@@ -4,7 +4,6 @@ import React, { useState, useRef, useEffect } from "react";
 import {
   Mic,
   MicOff,
-  Send,
   VolumeX,
   Sparkles,
   Loader2,
@@ -16,7 +15,15 @@ import {
   Film,
   Code2,
   ChevronUp,
+  AppWindow,
+  Gamepad2,
+  Globe,
+  LayoutDashboard,
+  Receipt,
+  Rocket,
+  Sheet,
 } from "lucide-react";
+import { ArrowIcon } from "./Btn";
 
 interface AudioControlsProps {
   isListening: boolean;
@@ -33,27 +40,27 @@ interface AudioControlsProps {
 }
 
 const CLAUDE_SKILLS_ID = [
-  { label: "🏗️ Swarm UI: Landing Page", prompt: "Gunakan Swarm Build Agent untuk membuat Landing Page lengkap item-per-item komponen sampai jadi full di index.html" },
-  { label: "📊 Swarm UI: Dashboard", prompt: "Gunakan Swarm Build Agent untuk membuat Dashboard Analytics lengkap per komponen sampai jadi full di index.html" },
-  { label: "📑 PPT & Video Animasi", prompt: "Buatkan slide presentasi pitch deck profesional dan siapkan mode export ke video animasi" },
-  { label: "📄 Invoice Resmi (PDF)", prompt: "Buatkan invoice penagihan resmi klien dengan rincian biaya, pajak 11%, dan format cetak PDF" },
-  { label: "📊 Spreadsheet Finansial", prompt: "Buatkan spreadsheet laporan arus kas bulanan dalam tabel terstruktur dan unduh CSV" },
-  { label: "⚡ Coding Complex & UI", prompt: "Kerjakan task coding modular dengan komponen React Tailwind dan sudut lengkungan 3px" },
-  { label: "🌐 Website Preview", prompt: "Tampilkan live website preview hasil pengembangan proyek" },
-  { label: "🚀 Deploy ke Vercel", prompt: "Auto deploy proyek website ini ke Vercel sekarang" },
-  { label: "🤖 Coworker Demo", prompt: "Coworker: Gerakkan kursor dan demonstrasikan fitur studio secara otomatis" },
+  { icon: Globe, label: "Landing page", prompt: "Bikinin landing page untuk brand kopi lokal 'Senja Seduh' lengkap dengan hero, menu, testimoni, dan lokasi" },
+  { icon: LayoutDashboard, label: "Dashboard", prompt: "Buat dashboard penjualan toko online dengan kartu KPI, grafik interaktif, dan tabel pesanan terbaru" },
+  { icon: Gamepad2, label: "Mini game", prompt: "Bikin game tebak angka yang seru dengan skor, level kesulitan, dan animasi" },
+  { icon: AppWindow, label: "Aplikasi", prompt: "Buat aplikasi to-do list dengan kategori, filter, dan data tersimpan di browser" },
+  { icon: Presentation, label: "Slide presentasi", prompt: "Buatkan slide presentasi pitch deck untuk startup aplikasi les privat online" },
+  { icon: FileText, label: "Dokumen / laporan", prompt: "Tulis proposal kegiatan bazar UMKM di kampus lengkap dengan latar belakang, tujuan, anggaran, dan jadwal" },
+  { icon: Receipt, label: "Invoice", prompt: "Buatkan invoice untuk jasa desain logo dan branding untuk klien PT Maju Jaya" },
+  { icon: Sheet, label: "Spreadsheet", prompt: "Buat tabel rencana anggaran bulanan mahasiswa dengan kategori, estimasi, dan realisasi" },
+  { icon: Rocket, label: "Deploy", prompt: "Auto deploy proyek website ini ke Vercel sekarang" },
 ];
 
 const CLAUDE_SKILLS_EN = [
-  { label: "🏗️ Swarm UI: Landing Page", prompt: "Use Swarm Build Agent to craft a complete Landing Page item-by-item until fully assembled in index.html" },
-  { label: "📊 Swarm UI: Dashboard", prompt: "Use Swarm Build Agent to craft a complete Analytics Dashboard item-by-item until fully assembled in index.html" },
-  { label: "📑 PPT & Video Animation", prompt: "Generate interactive pitch deck presentation slides with animated video export capability" },
-  { label: "📄 Official Invoice (PDF)", prompt: "Create an official client invoice with itemized charges, 11% tax, and PDF print export" },
-  { label: "📊 Financial Spreadsheet", prompt: "Create a monthly cashflow financial spreadsheet with CSV export" },
-  { label: "⚡ Complex Code & UI", prompt: "Execute complex full-stack coding task with React Tailwind 3px corner components" },
-  { label: "🌐 Live Web Preview", prompt: "Open live website preview panel for the active project" },
-  { label: "🚀 Deploy to Vercel", prompt: "Trigger auto deployment of current workspace to Vercel" },
-  { label: "🤖 Coworker Demo", prompt: "Coworker: Move cursor and demonstrate the studio autonomously" },
+  { icon: Globe, label: "Landing page", prompt: "Build a landing page for a local coffee brand 'Dusk Brew' with hero, menu, testimonials, and location" },
+  { icon: LayoutDashboard, label: "Dashboard", prompt: "Build an online store sales dashboard with KPI cards, interactive charts, and a recent orders table" },
+  { icon: Gamepad2, label: "Mini game", prompt: "Build a fun number guessing game with score, difficulty levels, and animations" },
+  { icon: AppWindow, label: "App", prompt: "Build a to-do list app with categories, filters, and data saved in the browser" },
+  { icon: Presentation, label: "Slide deck", prompt: "Create a pitch deck presentation for an online tutoring startup" },
+  { icon: FileText, label: "Document", prompt: "Write a proposal for a campus small-business bazaar with background, goals, budget, and schedule" },
+  { icon: Receipt, label: "Invoice", prompt: "Create an invoice for logo and branding design services for client Acme Corp" },
+  { icon: Sheet, label: "Spreadsheet", prompt: "Create a monthly student budget table with categories, estimates, and actuals" },
+  { icon: Rocket, label: "Deploy", prompt: "Trigger auto deployment of current workspace to Vercel" },
 ];
 
 export function AudioControls({
@@ -76,6 +83,8 @@ export function AudioControls({
     name: string;
   } | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [attachedDoc, setAttachedDoc] = useState<{ name: string; text: string; chars: number; truncated: boolean } | null>(null);
+  const [docError, setDocError] = useState("");
   const [showSkillsMenu, setShowSkillsMenu] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -102,6 +111,27 @@ export function AudioControls({
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setIsUploadingImage(true);
+      setDocError("");
+      try {
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch("/api/extract", { method: "POST", body: fd });
+        const data = await res.json();
+        if (data.success) {
+          setAttachedDoc({ name: data.name, text: data.text, chars: data.chars, truncated: data.truncated });
+          setAttachedImage(null);
+        } else setDocError(data.error || "Gagal membaca file");
+      } catch {
+        setDocError("Gagal membaca file");
+      } finally {
+        setIsUploadingImage(false);
+        e.target.value = "";
+      }
+      return;
+    }
 
     setIsUploadingImage(true);
     try {
@@ -145,9 +175,10 @@ export function AudioControls({
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const textToSend =
+    const typed =
       inputText.trim() ||
-      (attachedImage ? "Analisis gambar ini dan buatkan kode atau solusinya" : "");
+      (attachedImage ? "Analisis gambar ini dan buatkan kode atau solusinya" : attachedDoc ? "Ringkas isi dokumen ini" : "");
+    const textToSend = attachedDoc && typed ? `${typed}\n\n<<lampiran:${attachedDoc.name.replace(/[<>\n]/g, "")}>>\n${attachedDoc.text}\n<</lampiran>>` : typed;
     if (!textToSend || isProcessing || isUploadingImage) return;
 
     onSendMessage(
@@ -157,6 +188,7 @@ export function AudioControls({
     );
     setInputText("");
     setAttachedImage(null);
+    setAttachedDoc(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -193,88 +225,93 @@ export function AudioControls({
   const skills = language === "id-ID" ? CLAUDE_SKILLS_ID : CLAUDE_SKILLS_EN;
 
   return (
-    <div className="w-full bg-[#101217] border-t border-[#232835] p-3 sm:p-4 space-y-2.5">
+    <div className="intro w-full shrink-0 space-y-2.5 pb-1" style={{ ["--d" as string]: "0.3s" }}>
       {/* Hidden File Input */}
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.pdf,.docx,.xlsx,.xlsm,.pptx,.csv,.tsv,.txt,.md,.json"
         onChange={handleFileSelect}
         className="hidden"
       />
 
-      {/* Live speech preview if speaking/listening */}
+      {/* Transkrip langsung saat mic aktif */}
       {(isListening || liveTranscript) && (
-        <div className="p-2.5 bg-[#141b27] border border-[#38bdf8]/60 rounded-[3px] flex items-center justify-between text-xs font-mono animate-fadeIn shadow-lg">
-          <div className="flex items-center gap-2 text-[#38bdf8] overflow-hidden min-w-0">
-            <span className="w-2.5 h-2.5 rounded-[2px] bg-[#38bdf8] animate-ping shrink-0" />
-            <span className="text-[#93c5fd] text-[11px] shrink-0 font-bold tracking-wider">
-              {jarvisMode ? "JARVIS LISTENING:" : "VOICE RECOGNITION:"}
-            </span>
-            <span className="text-[#f8fafc] truncate italic font-sans font-medium">
-              {liveTranscript || "Mendengarkan ucapanmu (bebas bicara & jeda santai, VAD 2.2s)..."}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0 ml-2">
-            <span className="text-[10px] text-[#38bdf8] font-mono px-1.5 py-0.5 bg-[#1e293b] border border-[#334155] rounded-[2px]">
-              VAD 2.2S
-            </span>
-            <span className="text-[10px] text-[#10b981] font-mono px-1.5 py-0.5 bg-[#14291f] border border-[#166534] rounded-[2px]">
-              LIVE
-            </span>
-          </div>
+        <div className="chat-in h-11 px-4 bg-base rounded-full flex items-center gap-3 text-sm shadow-[inset_0_0_0_1px_var(--line)]">
+          <span className="pulse-dot shrink-0" style={{ background: "var(--accent)" }} />
+          <span className={`min-w-0 flex-1 truncate ${liveTranscript ? "text-fg font-medium" : "text-fg-3 italic"}`}>
+            {liveTranscript || "Ngomong aja, santai. Diam sebentar buat ngirim."}
+            {isListening && <span className="chat-caret" />}
+          </span>
+          <span className="shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-fg-3">
+            {jarvisMode ? "Hands-free" : "Live"}
+          </span>
         </div>
       )}
 
-      {/* Attached Image Preview Chip */}
+      {/* Lampiran dokumen */}
+      {(attachedDoc || docError) && (
+        <div className="animate-rise px-2.5 py-2 bg-raised border border-line rounded-2xl flex items-center justify-between gap-2">
+          <div className="min-w-0 flex items-center gap-2">
+            <Paperclip className="w-3.5 h-3.5 shrink-0 text-accent" strokeWidth={1.5} />
+            {attachedDoc ? (
+              <div className="min-w-0">
+                <div className="text-xs text-fg truncate font-medium">{attachedDoc.name}</div>
+                <div className="text-[11px] text-moss">{attachedDoc.chars.toLocaleString("id-ID")} karakter terbaca{attachedDoc.truncated ? " (dipotong 30.000)" : ""}</div>
+              </div>
+            ) : (
+              <div className="text-[11px] text-danger">{docError}</div>
+            )}
+          </div>
+          <button type="button" onClick={() => { setAttachedDoc(null); setDocError(""); }} aria-label="Hapus lampiran" className="p-1.5 hover:bg-danger-wash text-fg-3 hover:text-danger rounded-lg cursor-pointer">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Lampiran gambar */}
       {attachedImage && (
-        <div className="p-2 bg-[#171b24] border border-[#374052] rounded-[3px] flex items-center justify-between animate-fadeIn">
+        <div className="animate-rise p-2 bg-raised border border-line rounded-2xl flex items-center justify-between">
           <div className="flex items-center gap-2.5 overflow-hidden">
             <img
               src={attachedImage.dataUri}
-              alt="Preview"
-              className="w-10 h-10 object-cover rounded-[2px] border border-[#48546b] shrink-0"
+              alt="Gambar yang dilampirkan"
+              className="w-8 h-8 object-cover rounded-lg border border-line shrink-0"
             />
             <div className="min-w-0">
-              <div className="text-xs font-mono text-[#f3f4f6] truncate font-medium">
-                {attachedImage.name}
-              </div>
-              <div className="text-[10px] text-[#10b981] font-mono flex items-center gap-1">
-                <span>✓ Siap dianalisis / Design-to-Code</span>
-              </div>
+              <div className="text-xs text-fg truncate font-medium">{attachedImage.name}</div>
+              <div className="text-[11px] text-moss">Siap dianalisis atau diubah jadi kode</div>
             </div>
           </div>
           <button
             type="button"
             onClick={() => setAttachedImage(null)}
-            className="p-1 hover:bg-[#27303f] text-[#9ca3af] hover:text-[#ef4444] rounded-[2px] transition-colors"
+            aria-label="Hapus lampiran"
+            className="p-1.5 hover:bg-danger-wash text-fg-3 hover:text-danger rounded-lg transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      {/* Quick Skills Pills Horizontal Bar */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs w-full min-w-0 shrink-0">
-        <span className="text-[10px] font-mono font-bold text-[#ea580c] px-1.5 py-0.5 bg-[#251711] border border-[#ea580c]/30 rounded-[2px] shrink-0 uppercase tracking-wider">
-          SKILLS:
-        </span>
+      {/* Skill cepat */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] w-full min-w-0">
         {skills.map((s, idx) => (
           <button
             key={idx}
             type="button"
             onClick={() => onSendMessage(s.prompt)}
             disabled={isProcessing}
-            className="shrink-0 px-2.5 py-1 bg-[#161922] hover:bg-[#222836] hover:border-[#ea580c]/60 text-[#a0abbd] hover:text-[#f3f4f6] border border-[#272e3d] rounded-[3px] text-[11px] font-mono transition-colors disabled:opacity-40 cursor-pointer"
+            className="chip shrink-0"
           >
+            <s.icon className="w-3.5 h-3.5" strokeWidth={1.5} />
             {s.label}
           </button>
         ))}
       </div>
 
-      {/* Modern High-Tech Unified Chat & Command Bar */}
-      <div className="relative bg-[#141720] border border-[#2b3345] focus-within:border-[#ea580c] rounded-[3px] shadow-2xl transition-colors">
-        {/* Multi-line expandable prompt input */}
+      {/* Composer */}
+      <div className="relative bg-base rounded-[1.5rem] shadow-[inset_0_0_0_1px_var(--line)] focus-within:shadow-[inset_0_0_0_1.5px_var(--fg)] transition-shadow duration-500">
         <textarea
           ref={textareaRef}
           value={inputText}
@@ -282,51 +319,45 @@ export function AudioControls({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           disabled={isProcessing}
-          rows={2}
+          rows={1}
+          aria-label="Pesan"
           placeholder={
             language === "id-ID"
-              ? "Ketik instruksi, paste gambar (Ctrl+V), atau klik icon mic / aktifkan JARVIS..."
-              : "Type instructions, paste image, or click mic / toggle JARVIS..."
+              ? "Ketik perintah atau tempel gambar (Ctrl+V)…"
+              : "Type a command or paste an image…"
           }
-          className="w-full bg-transparent text-[#f3f4f6] text-xs sm:text-sm font-sans px-3.5 pt-3 pb-2 outline-hidden placeholder-[#636e82] resize-none leading-relaxed"
+          className="w-full bg-transparent text-fg text-[14px] px-4 pt-3 pb-0.5 outline-hidden placeholder:text-fg-4 resize-none leading-relaxed"
         />
 
-        {/* Bottom Internal Toolbar: Attachments + Jarvis + Mic + Send */}
-        <div className="px-2 pb-2 pt-1 flex items-center justify-between border-t border-[#1e2432] gap-1.5 flex-wrap">
-          {/* Left tools */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            {/* Attachment Button */}
+        <div className="px-2.5 pb-2.5 pl-3 flex flex-wrap items-center justify-between gap-1.5 min-w-0">
+          <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={isProcessing || isUploadingImage}
-              title="Lampirkan Gambar atau Screenshot"
-              className="p-1.5 bg-[#1b202c] hover:bg-[#252c3c] border border-[#2d3648] hover:border-[#ea580c]/60 text-[#9ca3af] hover:text-[#f3f4f6] rounded-[3px] transition-colors disabled:opacity-50 flex items-center justify-center cursor-pointer"
+              title="Lampirkan gambar atau file (PDF, Word, Excel, PPT, CSV)"
+              aria-label="Lampirkan gambar"
+              className="icon-btn disabled:opacity-50"
             >
-              {isUploadingImage ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#ea580c]" />
-              ) : (
-                <Paperclip className="w-3.5 h-3.5" />
-              )}
+              {isUploadingImage ? <Loader2 className="w-4 h-4 animate-spin text-accent" /> : <Paperclip className="w-4 h-4" strokeWidth={1.5} />}
             </button>
 
-            {/* Quick Skills Selector */}
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setShowSkillsMenu(!showSkillsMenu)}
-                className="px-2 py-1 bg-[#1b202c] hover:bg-[#252c3c] border border-[#2d3648] text-[#9ca3af] hover:text-[#f3f4f6] rounded-[3px] text-[11px] font-mono flex items-center gap-1 transition-colors cursor-pointer"
+                aria-expanded={showSkillsMenu}
+                className="chip h-9"
               >
-                <Sparkles className="w-3 h-3 text-[#ea580c]" />
-                <span className="hidden sm:inline">Claude Skills</span>
+                <Sparkles className="w-3.5 h-3.5" strokeWidth={1.5} />
+                <span className="hidden sm:inline">Skills</span>
                 <ChevronUp className={`w-3 h-3 transition-transform ${showSkillsMenu ? "rotate-180" : ""}`} />
               </button>
 
-              {/* Skills Dropdown Menu */}
               {showSkillsMenu && (
-                <div className="absolute bottom-full left-0 mb-2 w-64 bg-[#141720] border border-[#2e374a] rounded-[3px] shadow-2xl p-1 z-30 space-y-0.5 animate-fadeIn">
-                  <div className="px-2.5 py-1 text-[10px] font-mono text-[#ea580c] uppercase font-bold border-b border-[#212838]">
-                    Pilih Skill Dokumen &amp; Coding:
+                <div className="chat-in absolute bottom-full left-0 mb-2 w-64 bg-raised border border-line rounded-2xl shadow-[0_30px_60px_-30px_rgba(0,0,0,0.35)] p-1.5 z-30">
+                  <div className="px-2.5 pt-1 pb-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-fg-3">
+                    Dokumen &amp; coding
                   </div>
                   {skills.map((s, idx) => (
                     <button
@@ -336,87 +367,70 @@ export function AudioControls({
                         setShowSkillsMenu(false);
                         onSendMessage(s.prompt);
                       }}
-                      className="w-full text-left px-2 py-1.5 text-xs text-[#cbd5e1] hover:text-[#f3f4f6] hover:bg-[#202636] rounded-[2px] transition-colors flex items-center gap-2 font-mono"
+                      className="w-full text-left px-2.5 py-2 text-sm text-fg-2 hover:text-fg hover:bg-hover rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
                     >
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#ea580c]" />
+                      <s.icon className="w-4 h-4 shrink-0 text-accent" strokeWidth={1.5} />
                       <span className="truncate">{s.label}</span>
                     </button>
                   ))}
                 </div>
               )}
             </div>
+
+            <button
+              type="button"
+              onClick={onToggleJarvisMode}
+              aria-pressed={jarvisMode}
+              title={jarvisMode ? "Hands-free aktif: mic nyala lagi otomatis setelah AI ngomong" : "Nyalakan mode hands-free"}
+              className="chip h-9"
+            >
+              <span className={`w-6 h-3.5 rounded-full relative transition-colors ${jarvisMode ? "bg-accent" : "bg-line-strong"} transition-colors duration-500`}>
+                <span
+                  className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-all duration-500 ${jarvisMode ? "left-3" : "left-0.5"}`}
+                />
+              </span>
+              <span className="hidden sm:inline">Hands-free</span>
+            </button>
           </div>
 
-          {/* Right Action Icons: JARVIS, Voice Mic, Stop Speech, Send */}
-          <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-            {/* Stop AI Audio playback button (only when speaking) */}
+          <div className="flex items-center gap-1.5 shrink-0">
             {isSpeaking && (
               <button
                 type="button"
                 onClick={onStopSpeaking}
-                title="Hentikan Pembacaan Suara AI"
-                className="px-2 py-1 bg-[#2b1712] border border-[#ea580c] hover:bg-[#381d17] text-[#f97316] rounded-[3px] flex items-center gap-1 text-[11px] font-mono transition-colors shadow-xs cursor-pointer animate-pulse"
+                title="Hentikan suara AI"
+                className="chip chat-in h-11"
               >
-                <VolumeX className="w-3.5 h-3.5 text-[#ea580c]" />
-                <span className="hidden sm:inline">DIAM</span>
+                <VolumeX className="w-4 h-4" />
+                <span className="hidden sm:inline">Stop suara</span>
               </button>
             )}
 
-            {/* JARVIS Hands-Free Mode Icon Button */}
-            <button
-              type="button"
-              onClick={onToggleJarvisMode}
-              title={jarvisMode ? "Mode JARVIS Aktif (Bebas bicara otomatis)" : "Aktifkan Mode JARVIS Hands-Free"}
-              className={`p-1.5 rounded-[3px] border font-mono text-xs flex items-center gap-1 transition-all cursor-pointer ${
-                jarvisMode
-                  ? "bg-[#142336] border-[#38bdf8] text-[#38bdf8] shadow-[0_0_8px_rgba(56,189,248,0.3)]"
-                  : "bg-[#181d28] border-[#293245] text-[#697488] hover:text-[#f3f4f6]"
-              }`}
-            >
-              <Sparkles className={`w-3.5 h-3.5 ${jarvisMode ? "text-[#38bdf8] animate-pulse" : "text-[#697488]"}`} />
-              <span className="text-[10px] font-bold hidden sm:inline">
-                {jarvisMode ? "JARVIS" : "OFF"}
-              </span>
-            </button>
-
-            {/* Small Voice Mic Icon Button */}
+            {/* Tombol mic: aksi utama */}
             <button
               type="button"
               onClick={onToggleMic}
               disabled={isProcessing}
-              title={isListening ? "Hentikan Mikrofon" : "Klik untuk Bicara (Voice Input)"}
-              className={`p-1.5 rounded-[3px] border transition-all cursor-pointer flex items-center gap-1 font-mono text-xs ${
-                isListening
-                  ? "bg-[#271812] border-[#ea580c] text-[#f97316] ring-2 ring-[#ea580c]/30 shadow-[0_0_10px_rgba(234,88,12,0.4)] animate-pulse"
-                  : "bg-[#181d28] hover:bg-[#252c3c] border-[#293245] hover:border-[#ea580c]/60 text-[#a0abbd] hover:text-[#f3f4f6]"
-              } disabled:opacity-40`}
+              aria-pressed={isListening}
+              title={isListening ? "Matikan mikrofon" : "Ngomong ke AI"}
+              aria-label={isListening ? "Matikan mikrofon" : "Nyalakan mikrofon"}
+              data-accent={isListening ? "" : undefined}
+              className={`round-btn !overflow-visible ${isListening ? "bg-accent text-white" : "bg-ink text-on-ink"}`}
             >
-              {isListening ? (
-                <>
-                  <MicOff className="w-3.5 h-3.5 text-[#ea580c]" />
-                  <span className="text-[10px] text-[#ea580c] font-bold hidden sm:inline">REC</span>
-                </>
-              ) : (
-                <>
-                  <Mic className="w-3.5 h-3.5 text-[#ea580c]" />
-                  <span className="text-[10px] hidden sm:inline">VOICE</span>
-                </>
-              )}
+              {isListening && <span className="absolute inset-0 -z-10 rounded-full bg-accent" style={{ animation: "pulse-ring 2s var(--ease-out-expo) infinite" }} />}
+              {isListening ? <MicOff className="w-[14px] h-[14px]" strokeWidth={1.75} /> : <Mic className="w-[14px] h-[14px]" strokeWidth={1.75} />}
             </button>
 
-            {/* Send Button */}
             <button
               type="button"
               onClick={() => handleSubmit()}
-              disabled={(!inputText.trim() && !attachedImage) || isProcessing}
-              title="Kirim Pesan (Enter)"
-              className="p-1.5 bg-[#ea580c] hover:bg-[#f97316] text-white disabled:bg-[#1e2330] disabled:text-[#4b5568] border border-[#c2410c] disabled:border-[#272e3d] rounded-[3px] transition-colors cursor-pointer disabled:cursor-not-allowed shadow-xs"
+              disabled={(!inputText.trim() && !attachedImage && !attachedDoc) || isProcessing}
+              title="Kirim (Enter)"
+              aria-label="Kirim pesan"
+              data-accent=""
+              className="round-btn bg-accent text-white text-[12px]"
             >
-              {isProcessing ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-              ) : (
-                <Send className="w-3.5 h-3.5" />
-              )}
+              {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowIcon />}
             </button>
           </div>
         </div>

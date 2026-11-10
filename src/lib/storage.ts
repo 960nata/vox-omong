@@ -103,17 +103,27 @@ export async function addMessage(
     role: "user" | "assistant";
     content: string;
     artifact?: any;
+    artifacts?: any[];
     imageUri?: string;
   }
 ): Promise<Message> {
   const db = await ensureDb();
   let conv = db.conversations.find((c) => c.id === conversationId);
 
+  const now = new Date().toISOString();
+
+  // Sesi belum ada: buat di snapshot `db` yang sama (dengan id dari klien) agar tidak tertimpa saat writeDb
   if (!conv) {
-    conv = await createConversation();
+    conv = {
+      id: conversationId || `conv-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      title: "Percakapan Baru",
+      createdAt: now,
+      updatedAt: now,
+      messages: [],
+    };
+    db.conversations.unshift(conv);
   }
 
-  const now = new Date().toISOString();
   const newMessage: Message = {
     id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     conversationId: conv.id,
@@ -121,6 +131,7 @@ export async function addMessage(
     content: message.content,
     timestamp: now,
     artifact: message.artifact,
+    ...(message.artifacts?.length ? { artifacts: message.artifacts } : {}),
     imageUri: message.imageUri,
   };
 

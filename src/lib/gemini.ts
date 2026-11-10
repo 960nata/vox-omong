@@ -10,6 +10,19 @@ export interface AIResponseResult {
   artifact?: ArtifactItem;
 }
 
+const CAPABILITIES = `KEMAMPUANMU (penting, jangan menyangkal):
+- Website: kamu BISA membuat dan mengubah website (HTML statis, atau full-stack Express/Go + React/Next.js lewat alur stack). Hasilnya muncul sebagai kartu di chat dengan tombol Preview yang membuka panel dari kanan. JANGAN pernah bilang kamu tidak bisa membuat atau menampilkan preview.
+- Presentasi: kamu BISA membuat slide PPT (minimal 7 slide, tema rapi, foto Unsplash, bisa diunduh sebagai .pptx dan video). Kalau user minta revisi ("tambah slide", "kasih gambar", "ganti tema"), deck yang sama dirombak.
+- Dokumen: kamu BISA membuat dokumen/laporan/surat yang bisa diunduh sebagai DOCX atau dicetak ke PDF, plus invoice dan tabel.
+- Email: kamu BISA menulis DRAF email dan mengirimnya lewat Gmail, tapi HANYA setelah user membalas "kirim". Kamu tidak mengarang alamat tujuan; alamat harus disebut user. Kalau Gmail belum disetel, katakan user perlu mengisi GMAIL_USER dan GMAIL_APP_PASSWORD di .env.local.
+- Browser: kamu BISA membuka halaman web, screenshot, dan menjalankan tugas bertahap (cari, klik, baca) di browser terpisah tanpa login user. Kamu TIDAK login, membayar, membeli, atau mengisi password/data kartu; itu dilakukan user sendiri.
+- Lainnya: rapat dewan AI (council), cek keamanan (audit) project, review UI, saran desain, jawaban dari dokumentasi, ribuan skill di katalog yang dipakai otomatis saat relevan, serta Git/Deploy Vercel/Terminal yang bekerja di folder project aktif.
+- Perubahan tampilan website yang kamu bisa: gaya (vintage, mewah gelap, minimalis, berani, futuristik), warna aksen, mode gelap/terang, tambah/hapus bagian, ganti teks, rombak total, undo.
+- JANGAN mengklaim sudah mengerjakan sesuatu ("sudah jadi", "sudah aku ubah", "sudah terkirim") di balasan teks biasa. Hasil hanya terjadi lewat tindakan nyata yang menghasilkan kartu hasil atau konfirmasi sistem. Kalau user meminta sesuatu tetapi belum jelas, minta ia menyebutkan hal konkretnya atau tawarkan opsi.
+- JANGAN menulis potongan kode CSS/HTML untuk disalin user kecuali user memintanya secara eksplisit.
+- Kamu belum bisa mengekspor ke Flutter, Laravel, atau PHP, dan video hanya berformat .webm. Video/animasi kamu BISA: mesin video merender adegan animasi (dari permintaan, JSON "scenes", atau HTML) lalu merekamnya jadi file .webm; slide juga bisa diekspor ke video. JANGAN bilang tidak bisa membuat video/animasi. Katakan jujur kalau diminta di luar kemampuan ini.
+`;
+
 export async function generateAIResponse({
   prompt,
   history = [],
@@ -19,6 +32,7 @@ export async function generateAIResponse({
   imageUri,
   imageDataUri,
   createdFolderInfo,
+  skillContext = "",
 }: {
   prompt: string;
   history?: MessageHistoryItem[];
@@ -28,6 +42,8 @@ export async function generateAIResponse({
   imageUri?: string;
   imageDataUri?: string;
   createdFolderInfo?: string;
+  /** Teks skill tambahan (skillHub) yang ditempel ke system prompt. */
+  skillContext?: string;
 }): Promise<AIResponseResult> {
   // If a folder was just created via command:
   if (createdFolderInfo) {
@@ -59,7 +75,7 @@ export async function generateAIResponse({
   const activeKey =
     apiKey ||
     process.env.AI_GATEWAY_KEY ||
-    process.env.GEMINI_API_KEY ||
+    (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) ||
     "";
 
   let rawReply = "";
@@ -106,9 +122,16 @@ export async function generateAIResponse({
         },
         body: JSON.stringify({
           agent: "custom",
+          // provider tercepat dulu supaya obrolan suara responsif; persona sendiri (bukan persona gateway)
+          prefer: ["groq", "cerebras", "gemini"],
+          system:
+            (systemPrompt ||
+            (language === "id-ID"
+              ? `Kamu VOX·AI, asisten suara yang santai dan to the point. Jawab natural seperti ngobrol, singkat (1-3 kalimat) kecuali diminta detail.\n${CAPABILITIES}`
+              : "You are VOX·AI, a friendly voice assistant. Reply naturally and briefly (1-3 sentences) unless asked for detail.")) + skillContext,
           prompt: promptWithContext,
           temperature: 0.6,
-          maxTokens: 900,
+          maxTokens: 3000,
         }),
       });
 
@@ -133,10 +156,10 @@ export async function generateAIResponse({
   }
 
   // 2. Check if this is a direct Google Gemini API Key (Multimodal Vision Supported)
-  if (!rawReply && (activeKey.startsWith("AIzaSy") || process.env.GEMINI_API_KEY)) {
+  if (!rawReply && (activeKey.startsWith("AIzaSy") || (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY))) {
     const geminiKey = activeKey.startsWith("AIzaSy")
       ? activeKey
-      : process.env.GEMINI_API_KEY;
+      : (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
 
     try {
       const contents: any[] = [];
@@ -169,11 +192,12 @@ export async function generateAIResponse({
         parts: userParts,
       });
 
-      const effectiveSystemPrompt =
+      const effectiveSystemPrompt = `${
         systemPrompt ||
         (language === "id-ID"
           ? "Kamu adalah asisten Voice AI cerdas dengan kemampuan multimodal (Vision, Coding, Dokumen). Berikan jawaban ringkas natural untuk didengar melalui suara."
-          : "You are an articulate Voice AI assistant with multimodal vision and coding capabilities.");
+          : "You are an articulate Voice AI assistant with multimodal vision and coding capabilities.")
+      }\n${CAPABILITIES}${skillContext}`;
 
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
 
@@ -187,7 +211,7 @@ export async function generateAIResponse({
           },
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 800,
+            maxOutputTokens: 4000,
           },
         }),
       });
@@ -503,63 +527,28 @@ export function VisualCardComponent() {
       const code = match[2];
       const lines = code.split("\n").length;
 
-      let filename = "route.ts";
-      let filePath = "/src/app/api/action/route.ts";
-
-      if (extractedFiles.length === 1) {
-        filename = "ActionViewer.tsx";
-        filePath = "/src/components/ActionViewer.tsx";
-      } else if (extractedFiles.length === 2) {
-        filename = "types.ts";
-        filePath = "/src/lib/types.ts";
-      }
+      const EXT: Record<string, string> = {
+        typescript: "ts", ts: "ts", tsx: "tsx", javascript: "js", js: "js", jsx: "jsx",
+        python: "py", py: "py", json: "json", css: "css", html: "html", bash: "sh", sh: "sh",
+        sql: "sql", php: "php", java: "java", go: "go", rust: "rs", dart: "dart", kotlin: "kt",
+      };
+      const ext = EXT[lang.toLowerCase()] || "txt";
+      const filename = `snippet-${extractedFiles.length + 1}.${ext}`;
+      const filePath = filename;
 
       extractedFiles.push({
         name: filename,
         path: filePath,
-        type: (lang === "tsx" || lang === "jsx" ? "tsx" : lang === "py" ? "py" : "ts"),
+        type: (["ts", "tsx", "js", "jsx", "py", "json", "css"].includes(ext) ? ext : "other") as ArtifactFile["type"],
         additions: lines,
-        deletions: Math.floor(lines * 0.1),
+        deletions: 0,
         content: code.trim(),
       });
     }
 
-    // Default realistic file diff bundle if no code block was explicitly parsed
+    // Tidak ada blok kode sungguhan → jangan tampilkan file palsu
     if (extractedFiles.length === 0) {
-      extractedFiles.push(
-        {
-          name: "route.ts",
-          path: "/Users/indragandi/Documents/Dev/voice ai/src/app/api/tts",
-          type: "ts",
-          additions: 66,
-          deletions: 0,
-          content: `import { NextResponse } from "next/server";\n\nexport async function POST(req: Request) {\n  const body = await req.json();\n  return NextResponse.json({ success: true, processed: true });\n}`,
-        },
-        {
-          name: "page.tsx",
-          path: "/Users/indragandi/Documents/Dev/voice ai/src/app",
-          type: "tsx",
-          additions: 72,
-          deletions: 9,
-          content: `"use client";\nimport React from "react";\n\nexport default function VoiceConsole() {\n  return <main className="bg-[#0e1014] text-[#f3f4f6]">Aksi Selesai Dijalankan</main>;\n}`,
-        },
-        {
-          name: "SettingsModal.tsx",
-          path: "/Users/indragandi/Documents/Dev/voice ai/src/components",
-          type: "tsx",
-          additions: 198,
-          deletions: 86,
-          content: `"use client";\n// Konfigurasi model dan parameter eksekusi`,
-        },
-        {
-          name: "types.ts",
-          path: "/Users/indragandi/Documents/Dev/voice ai/src/lib",
-          type: "ts",
-          additions: 2,
-          deletions: 0,
-          content: `export interface ArtifactFile {\n  name: string;\n  path: string;\n  additions: number;\n  deletions: number;\n}`,
-        }
-      );
+      return { reply };
     }
 
     const totalAdditions = extractedFiles.reduce((acc, f) => acc + f.additions, 0);
@@ -568,7 +557,7 @@ export function VisualCardComponent() {
     const artifact: ArtifactItem = {
       id: `art-diff-${Date.now()}`,
       type: "code_diff",
-      title: `${extractedFiles.length} files changed`,
+      title: `${extractedFiles.length} potongan kode`,
       files: extractedFiles,
       totalAdditions,
       totalDeletions,
@@ -577,7 +566,7 @@ export function VisualCardComponent() {
 
     let spokenText = reply.replace(/```[\s\S]*?```/g, "").trim();
     if (!spokenText || spokenText.length < 15) {
-      spokenText = `Saya sudah selesai mengerjakan kode dan memperbarui ${extractedFiles.length} file terkait. Anda bisa meninjau detail perubahan file pada kartu di bawah.`;
+      spokenText = `Kodenya udah aku tulis, ada ${extractedFiles.length} bagian. Lihat di kartu kode di bawah.`;
     }
 
     return { reply: spokenText, artifact };
