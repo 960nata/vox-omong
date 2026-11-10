@@ -72,7 +72,22 @@ Model AI gratisan gampang ngawur kalau disuruh mikir terlalu banyak sekaligus. J
 - Angka dan fakta diambil dari hasil riset atau file lampiran. Model merangkum, tidak mengarang.
 - Hal yang bisa dihitung, seperti kontras warna atau jumlah slide, dihitung kode.
 
-Kode utamanya ada di `src/lib/` (mesin tiap fitur) dan `src/app/api/` (endpoint). Tampilan chat di `src/components/`.
+Penjelasan lengkapnya ada di [`docs/ARSITEKTUR.md`](docs/ARSITEKTUR.md).
+
+## Struktur folder
+
+```
+src/app/          halaman dan endpoint API
+src/components/   tampilan chat, kartu hasil, panel preview
+src/lib/          mesin tiap fitur (website, slide, video, riset, email, ...)
+skills/           panduan desain pihak ketiga yang disisipkan ke prompt
+jarvis-call/      layanan Python untuk telepon WhatsApp
+docs/             catatan arsitektur
+```
+
+## Keamanan
+
+Aplikasi ini punya akses terminal, file, dan browser di komputer tempat ia berjalan. Jalankan di `localhost` saja dan jangan dibuka ke internet. Detailnya di [`SECURITY.md`](SECURITY.md).
 
 ## Yang belum
 
@@ -89,7 +104,7 @@ Folder `skills/` berisi panduan desain dari proyek open source lain, lengkap den
 
 ## Ikut bantu
 
-Proyek ini terbuka. Kalau nemu bug atau punya ide, buka issue atau kirim pull request. Perubahan kecil pun diterima dengan senang hati.
+Proyek ini terbuka. Kalau nemu bug atau punya ide, buka issue atau kirim pull request. Perubahan kecil pun diterima dengan senang hati. Panduannya ada di [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Lisensi
 

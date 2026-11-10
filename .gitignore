@@ -49,3 +49,6 @@ next-env.d.ts
 jarvis-call/.env
 jarvis-call/.venv/
 .data/jarvis-tasks.json
+
+# catatan lokal
+*.patch

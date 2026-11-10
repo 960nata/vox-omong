@@ -1,15 +1,28 @@
 {
-  "name": "voice-ai",
+  "name": "vox-omong",
   "version": "0.1.0",
   "private": true,
+  "description": "Asisten AI yang tinggal disuruh: ngomong atau ketik, hasilnya jadi website, slide, dokumen, dan video.",
+  "license": "MIT",
+  "author": "Dicky Hadinata (https://hadinata.dev)",
+  "keywords": [
+    "ai-assistant",
+    "voice-assistant",
+    "nextjs",
+    "agent",
+    "indonesia"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
-    "@prisma/client": "^6.4.1",
     "@supabase/supabase-js": "^2.119.0",
     "animejs": "^4.5.0",
     "jszip": "^3.10.2",
@@ -31,7 +44,6 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.5",
     "postcss": "^8.5.32",
-    "prisma": "^6.4.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   },
