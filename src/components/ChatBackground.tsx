@@ -310,7 +310,9 @@ export function ChatBackground({ isListening = false, isSpeaking = false, isProc
 
     const onMove = (e: PointerEvent) => {
       const r = canvas.getBoundingClientRect();
-      const inside = e.clientY >= r.top && e.clientY <= r.bottom && e.clientX >= r.left && e.clientX <= r.right;
+      const relY = (e.clientY - r.top) / r.height;
+      // Jangan aktifkan kubah titik jika kursor berada di area bawah (chip saran / input bar)
+      const inside = e.clientY >= r.top && e.clientY <= r.bottom && e.clientX >= r.left && e.clientX <= r.right && relY <= 0.65;
       state.onTarget = inside ? 1 : 0;
       if (inside) {
         state.tx = ((e.clientX - r.left) / r.width) * 2 - 1;
@@ -368,7 +370,11 @@ export function ChatBackground({ isListening = false, isSpeaking = false, isProc
     <div
       ref={wrapRef}
       aria-hidden="true"
-      className="absolute inset-0 pointer-events-none [mask-image:linear-gradient(to_bottom,transparent_30%,black_75%)]"
+      className="absolute inset-0 pointer-events-none"
+      style={{
+        WebkitMaskImage: "linear-gradient(to bottom, black 15%, rgba(0,0,0,0.4) 50%, transparent 72%)",
+        maskImage: "linear-gradient(to bottom, black 15%, rgba(0,0,0,0.4) 50%, transparent 72%)",
+      }}
     >
       <canvas
         ref={canvasRef}

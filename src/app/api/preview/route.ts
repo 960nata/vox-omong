@@ -16,7 +16,7 @@ function sanitizeSlug(name: string): string {
 function starterHtml(projectId: string) {
   const name = projectId.replace(/-/g, " ");
   const ideas = [
-    "Bikinin landing page untuk kedai kopi",
+    "Bikinin halaman portofolio pribadi",
     "Buat dashboard penjualan toko online",
     "Bikin game tebak angka",
     "Buat aplikasi to-do list",

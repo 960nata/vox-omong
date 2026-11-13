@@ -7,6 +7,7 @@ interface VoiceVisualizerProps {
   isSpeaking: boolean;
   isProcessing: boolean;
   audioStream: MediaStream | null;
+  error?: string | null;
 }
 
 type Mode = "idle" | "listening" | "speaking" | "processing";
@@ -44,7 +45,7 @@ function rgba(hex: string, a: number) {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
-export function VoiceVisualizer({ isListening, isSpeaking, isProcessing, audioStream }: VoiceVisualizerProps) {
+export function VoiceVisualizer({ isListening, isSpeaking, isProcessing, audioStream, error }: VoiceVisualizerProps) {
   const orbRef = useRef<HTMLCanvasElement | null>(null);
   const waveRef = useRef<HTMLCanvasElement | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -282,19 +283,20 @@ export function VoiceVisualizer({ isListening, isSpeaking, isProcessing, audioSt
   return (
     <section
       aria-live="polite"
-      style={{ animationDelay: "120ms" }}
-      className="intro relative w-full shrink-0 rounded-full bg-base shadow-[inset_0_0_0_1px_var(--line)] pl-1.5 pr-5 py-1 flex items-center gap-3 overflow-hidden"
+      aria-label={error || copy.title}
+      title={error || copy.hint}
+      className="relative isolate w-full h-[54px] shrink-0 rounded-full bg-base shadow-[inset_0_0_0_1px_var(--line)] pl-1.5 pr-4 py-1 flex items-center gap-3 overflow-hidden"
     >
       <canvas ref={orbRef} aria-hidden="true" className="w-11 h-11 shrink-0" style={{ animationDelay: "220ms" }} />
 
-      <div className="flex items-baseline gap-2.5 min-w-0 shrink-0">
-        <span key={mode} className="chat-in text-[14px] font-medium tracking-[-0.01em] text-fg truncate">
-          {copy.title}
+      <div className="flex flex-1 items-baseline gap-2.5 min-w-0">
+        <span className="shrink-0 max-w-full text-[14px] font-medium tracking-[-0.01em] text-fg truncate">
+          {error || copy.title}
         </span>
-        <span className="hidden sm:inline text-[12px] text-fg-3 truncate">{copy.hint}</span>
+        {!error && <span className="hidden sm:inline text-[12px] text-fg-3 truncate">{copy.hint}</span>}
       </div>
 
-      <canvas ref={waveRef} aria-hidden="true" className="flex-1 min-w-0 h-8 hidden min-[420px]:block" />
+      <canvas ref={waveRef} aria-hidden="true" className="w-20 sm:w-28 shrink-0 h-8 hidden min-[420px]:block" />
     </section>
   );
 }

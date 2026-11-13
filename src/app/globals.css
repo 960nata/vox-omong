@@ -129,9 +129,9 @@
   --color-scrim: var(--scrim);
   --color-on-accent: var(--on-accent);
 
-  --font-sans: var(--nf-body), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--nf-body), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--nf-mono), ui-monospace, monospace;
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-display: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, monospace;
 
   --text-h1: clamp(2.25rem, 1.5rem + 3.3vw, 5.5rem);
   --text-h1--line-height: 1;
@@ -144,7 +144,7 @@ body {
   color: var(--fg);
 }
 body {
-  font-family: var(--nf-body), ui-sans-serif, system-ui, sans-serif;
+  font-family: ui-sans-serif, system-ui, sans-serif;
   -webkit-tap-highlight-color: transparent;
 }
 ::selection {
@@ -154,6 +154,17 @@ body {
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Hilangkan outline kotak bawaan browser pada textarea & input saat diklik */
+textarea, input, select {
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+textarea:focus, input:focus, select:focus,
+textarea:focus-visible, input:focus-visible, select:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 /* Scrollbar disembunyikan total; area tetap bisa di-scroll */

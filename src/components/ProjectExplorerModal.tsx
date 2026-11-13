@@ -491,9 +491,9 @@ export function ProjectExplorerModal({
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-md bg-moss" />
             <span>Voice Command Support:</span>
-            <span className="text-fg italic">"buat folder [nama]"</span>
+            <span className="text-fg italic">&quot;buat folder [nama]&quot;</span>
             <span>atau</span>
-            <span className="text-fg italic">"buat folder components/ui"</span>
+            <span className="text-fg italic">&quot;buat folder components/ui&quot;</span>
           </div>
           <span className="text-fg-4">Batas kedalaman: 4 level</span>
         </div>

@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { connectLocalProject } from "@/lib/browserLocalProject";
 import {
   Globe,
   Folder,
   FolderOpen,
+  Search,
   Terminal as TerminalIcon,
   GitBranch,
   Cloud,
@@ -31,6 +33,12 @@ import {
   ArrowRight,
   Maximize2,
   Minimize2,
+  Upload,
+  FolderUp,
+  Copy,
+  Save,
+  Edit3,
+  Eye,
 } from "lucide-react";
 
 export type WorkspaceTab = "preview" | "explorer" | "terminal" | "deploy";
@@ -55,7 +63,10 @@ interface TerminalLog {
   command: string;
   stdout: string;
   stderr: string;
-  exitCode: number;
+  exitCode: number | null;
+  running?: boolean;
+  ready?: boolean;
+  previewUrl?: string;
   durationMs: number;
   timestamp: string;
 }
@@ -238,21 +249,76 @@ export function RightWorkspacePanel({
   const [newFileName, setNewFileName] = useState("");
   const [explorerMsg, setExplorerMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
+  // Code search state (Lumen & Codebase search mandiri tanpa Ollama)
+  const [codeSearchQuery, setCodeSearchQuery] = useState("");
+  const [codeSearchResults, setCodeSearchResults] = useState<{
+    stats?: { files: number; symbols: number; chunks: number };
+    hits: Array<{
+      file: string;
+      startLine: number;
+      endLine: number;
+      score: number;
+      symbols: { name: string; kind: string; line: number }[];
+      importedBy: string[];
+      snippet: string;
+    }>;
+  } | null>(null);
+  const [isSearchingCode, setIsSearchingCode] = useState(false);
+
+  useEffect(() => {
+    const q = codeSearchQuery.trim();
+    if (!q) {
+      setCodeSearchResults(null);
+      setIsSearchingCode(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearchingCode(true);
+      try {
+        const res = await fetch(`/api/codesearch?q=${encodeURIComponent(q)}&projectId=${encodeURIComponent(activeProjectId)}`);
+        const data = await res.json();
+        if (data.ok) {
+          setCodeSearchResults(data);
+        }
+      } catch (err) {
+        console.error("Code search error:", err);
+      } finally {
+        setIsSearchingCode(false);
+      }
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [codeSearchQuery, activeProjectId]);
+
+  // Active File Viewer/Editor state
+  const [activeFile, setActiveFile] = useState<{
+    relativePath: string;
+    name: string;
+    content: string;
+    isBinary: boolean;
+    size: number;
+    isEditing?: boolean;
+  } | null>(null);
+  const [activeFileLoading, setActiveFileLoading] = useState(false);
+  const [isUploadingExplorer, setIsUploadingExplorer] = useState(false);
+  const fileUploadRef = useRef<HTMLInputElement>(null);
+  const folderUploadRef = useRef<HTMLInputElement>(null);
+  const treeRequestRef = useRef(0);
+
   const fetchTree = async (pId?: string) => {
+    const requestId = ++treeRequestRef.current;
     setTreeLoading(true);
     const targetProject = pId || activeProjectId || "default-workspace";
     try {
       const res = await fetch(`/api/fs?projectId=${encodeURIComponent(targetProject)}`);
       const data = await res.json();
-      if (data.success) {
+      if (requestId === treeRequestRef.current && data.success) {
         setTree(data.tree || []);
         if (data.projects) setProjects(data.projects);
-        if (data.activeProject) setActiveProjectId(data.activeProject);
       }
     } catch (e) {
       console.warn("Failed to fetch tree:", e);
     } finally {
-      setTreeLoading(false);
+      if (requestId === treeRequestRef.current) setTreeLoading(false);
     }
   };
 
@@ -402,6 +468,123 @@ export function RightWorkspacePanel({
     setTimeout(() => setExplorerMsg(null), 3500);
   };
 
+  const openFilePath = async (filePath: string) => {
+    setActiveFileLoading(true);
+    try {
+      const res = await fetch(
+        `/api/fs?projectId=${encodeURIComponent(activeProjectId)}&filePath=${encodeURIComponent(filePath)}`
+      );
+      const data = await res.json();
+      if (data.success) {
+        const name = filePath.split("/").pop() || filePath;
+        setActiveFile({
+          relativePath: filePath,
+          name,
+          content: data.content ?? "",
+          isBinary: !!data.isBinary,
+          size: data.size || 0,
+          isEditing: false,
+        });
+      } else {
+        setExplorerMsg({ text: data.error || "Gagal membuka file", ok: false });
+      }
+    } catch (e: any) {
+      setExplorerMsg({ text: e.message, ok: false });
+    } finally {
+      setActiveFileLoading(false);
+    }
+  };
+
+  const handleOpenFile = async (node: FileNode) => {
+    await openFilePath(node.relativePath);
+  };
+
+  const handleSaveActiveFile = async () => {
+    if (!activeFile) return;
+    try {
+      const res = await fetch("/api/fs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save_file",
+          projectId: activeProjectId,
+          filePath: activeFile.relativePath,
+          content: activeFile.content,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setExplorerMsg({ text: `File "${activeFile.name}" berhasil disimpan!`, ok: true });
+        setActiveFile((prev) => (prev ? { ...prev, isEditing: false } : null));
+        fetchTree();
+      } else {
+        setExplorerMsg({ text: data.error || "Gagal menyimpan file", ok: false });
+      }
+    } catch (e: any) {
+      setExplorerMsg({ text: e.message, ok: false });
+    }
+    setTimeout(() => setExplorerMsg(null), 3500);
+  };
+
+  const handleExplorerUpload = async (e: React.ChangeEvent<HTMLInputElement>, isFolder = false) => {
+    const rawFiles = e.target.files;
+    if (!rawFiles || rawFiles.length === 0) return;
+    setIsUploadingExplorer(true);
+    try {
+      let fileArray = Array.from(rawFiles);
+      if (isFolder) {
+        // Abaikan folder raksasa node_modules, .git, .next agar browser tidak crash/membeku
+        fileArray = fileArray.filter((f) => {
+          const parts = (f.webkitRelativePath || f.name).split("/");
+          return !parts.some((part) => part.startsWith(".") || ["node_modules", "dist", "build"].includes(part));
+        });
+        if (!fileArray.length) throw new Error("Folder ini tidak punya file yang bisa diimpor.");
+        if (fileArray.length > 500) {
+          throw new Error("Folder terlalu besar (maksimal 500 file sekaligus).");
+        }
+      }
+
+      const fd = new FormData();
+      fd.append("projectId", activeProjectId);
+      fd.append("uploadType", isFolder ? "folder" : "file");
+      if (isFolder) {
+        const paths = fileArray.map((f) => f.webkitRelativePath || f.name);
+        fd.append("paths", JSON.stringify(paths));
+      }
+      fileArray.forEach((file) => fd.append("files", file));
+
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const data = await res.json();
+      if (data.success) {
+        setExplorerMsg({ text: `Berhasil mengunggah ${isFolder ? "folder" : "file"} ke project!`, ok: true });
+        fetchTree();
+      } else {
+        setExplorerMsg({ text: data.error || "Upload gagal", ok: false });
+      }
+    } catch (err: any) {
+      setExplorerMsg({ text: err.message, ok: false });
+    } finally {
+      setIsUploadingExplorer(false);
+      e.target.value = "";
+      setTimeout(() => setExplorerMsg(null), 3500);
+    }
+  };
+
+  const handleConnectLocal = async () => {
+    try {
+      setIsUploadingExplorer(true);
+      const id = await connectLocalProject();
+      setActiveProjectId(id);
+      await fetchTree(id);
+      setExplorerMsg({ text: `Folder lokal terhubung ke project ${id}. Perubahan file akan dibaca sebelum chat.`, ok: true });
+    } catch (error) {
+      if ((error as Error).name !== "AbortError") setExplorerMsg({ text: (error as Error).message, ok: false });
+    } finally {
+      setIsUploadingExplorer(false);
+      setTimeout(() => setExplorerMsg(null), 5000);
+    }
+  };
+
   const renderFileNode = (node: FileNode, level = 0) => {
     const isExpanded = !!expandedFolders[node.relativePath];
 
@@ -474,6 +657,11 @@ export function RightWorkspacePanel({
               {node.children.map((child) => renderFileNode(child, level + 1))}
             </div>
           )}
+          {isExpanded && (!node.children || node.children.length === 0) && (
+            <div className="border-l border-line ml-3 pl-4 py-1 text-[11px] text-fg-4 italic">
+              (Folder kosong)
+            </div>
+          )}
         </div>
       );
     }
@@ -493,12 +681,13 @@ export function RightWorkspacePanel({
     return (
       <div
         key={node.relativePath}
-        className="group flex items-center justify-between px-2 py-1 hover:bg-hover rounded-lg text-xs transition-colors"
+        onClick={() => handleOpenFile(node)}
+        className="group flex items-center justify-between px-2 py-1 hover:bg-hover rounded-lg text-xs transition-colors cursor-pointer"
         style={{ paddingLeft: `${Math.max(6, level * 14 + 18)}px` }}
       >
         <div className="flex items-center gap-1.5 overflow-hidden">
           {icon}
-          <span className="font-mono text-fg truncate">{node.name}</span>
+          <span className="font-mono text-fg group-hover:text-accent transition-colors truncate">{node.name}</span>
           {typeof node.size === "number" && (
             <span className="text-[10px] text-fg-3 font-mono">
               ({node.size > 1024 ? `${(node.size / 1024).toFixed(1)}KB` : `${node.size}B`})
@@ -506,14 +695,30 @@ export function RightWorkspacePanel({
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => handleDeleteItem(node.relativePath)}
-          title="Hapus file"
-          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-danger-wash text-danger rounded-md"
-        >
-          <Trash2 className="w-3 h-3" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenFile(node);
+            }}
+            title="Buka file"
+            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-hover text-fg-2 hover:text-fg rounded-md"
+          >
+            <Eye className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDeleteItem(node.relativePath);
+            }}
+            title="Hapus file"
+            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-danger-wash text-danger rounded-md"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
       </div>
     );
   };
@@ -533,6 +738,23 @@ export function RightWorkspacePanel({
   const [inputCmd, setInputCmd] = useState("");
   const [isRunningCmd, setIsRunningCmd] = useState(false);
   const terminalEndRef = useRef<HTMLDivElement | null>(null);
+  const monitoredLogId = logs.findLast((entry) => entry.running)?.id;
+
+  useEffect(() => {
+    if (activeTab !== "terminal" || !monitoredLogId) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/terminal?projectId=${encodeURIComponent(activeProjectId)}`, { signal: controller.signal, cache: "no-store" });
+        const data = await response.json();
+        if (response.ok && !controller.signal.aborted) setLogs((previous) => previous.map((entry) => entry.id === monitoredLogId ? { ...entry, stdout: data.stdout || "", stderr: data.stderr || data.error || "", exitCode: data.exitCode ?? null, running: !!data.running, ready: !!data.ready, previewUrl: data.previewUrl } : entry));
+      } catch { /* Coba lagi saat koneksi lokal kembali tersedia. */ }
+      if (!controller.signal.aborted) timer = setTimeout(poll, 2500);
+    };
+    timer = setTimeout(poll, 1000);
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [activeTab, activeProjectId, monitoredLogId]);
 
   useEffect(() => {
     if (activeTab === "terminal") {
@@ -549,15 +771,18 @@ export function RightWorkspacePanel({
       const res = await fetch("/api/terminal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command: cmdToRun.trim(), projectId: activeProjectId }),
+        body: JSON.stringify({ ...(/^status server$/i.test(cmdToRun.trim()) ? { action: "status" } : /^stop server$/i.test(cmdToRun.trim()) ? { action: "stop" } : { command: cmdToRun.trim() }), projectId: activeProjectId }),
       });
       const data = await res.json();
       const newLog: TerminalLog = {
         id: `term-${Date.now()}`,
         command: cmdToRun.trim(),
         stdout: data.stdout || "",
-        stderr: data.stderr || "",
-        exitCode: data.exitCode ?? (data.success ? 0 : 1),
+        stderr: data.stderr || data.error || "",
+        exitCode: data.exitCode === null ? null : data.exitCode ?? (data.success ? 0 : 1),
+        running: !!data.running,
+        ready: !!data.ready,
+        previewUrl: data.previewUrl,
         durationMs: data.durationMs || Date.now() - start,
         timestamp: new Date().toLocaleTimeString(),
       };
@@ -565,7 +790,7 @@ export function RightWorkspacePanel({
       setInputCmd("");
       if (onTriggerVoiceFeedback) {
         if (data.success) {
-          onTriggerVoiceFeedback(`Perintah selesai dijalankan.`);
+          onTriggerVoiceFeedback(data.running ? data.ready ? "Server sudah berjalan dan merespons." : "Proses berjalan, menunggu server siap." : "Perintah selesai dijalankan.");
         } else {
           onTriggerVoiceFeedback(`Perintah selesai dengan kode error.`);
         }
@@ -859,7 +1084,26 @@ export function RightWorkspacePanel({
 
         {/* ================= TAB 2: PROJECT EXPLORER ================= */}
         {activeTab === "explorer" && (
-          <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 flex flex-col overflow-hidden relative">
+            {/* Hidden upload input for Explorer (file tunggal/banyak file, tanpa webkitdirectory) */}
+            <input
+              ref={fileUploadRef}
+              type="file"
+              multiple
+              onChange={(e) => handleExplorerUpload(e, false)}
+              className="hidden"
+            />
+            <input
+              ref={(node) => {
+                folderUploadRef.current = node;
+                node?.setAttribute("webkitdirectory", "");
+              }}
+              type="file"
+              multiple
+              onChange={(e) => handleExplorerUpload(e, true)}
+              className="hidden"
+            />
+
             {/* Pilih project + aksi */}
             <div className="px-3 py-2.5 border-b border-line flex items-center gap-2">
               <label className="relative flex-1 min-w-0">
@@ -922,34 +1166,97 @@ export function RightWorkspacePanel({
 
             {/* Toolbar file */}
             <div className="px-3 py-1.5 border-b border-line flex items-center justify-between text-xs">
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 flex-wrap">
                 <button
                   onClick={() => {
                     setSelectedParent("");
                     setIsCreatingFolder(true);
                   }}
-                  className="lift flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-fg-2 hover:text-fg hover:bg-hover cursor-pointer"
+                  className="lift flex items-center gap-1 px-2 py-1 rounded-lg text-fg-2 hover:text-fg hover:bg-hover cursor-pointer"
+                  title="Buat folder baru"
                 >
                   <FolderPlus className="w-3.5 h-3.5 text-glow" />
-                  Folder
+                  +Folder
                 </button>
                 <button
                   onClick={() => {
                     setSelectedParent("");
                     setIsCreatingFile(true);
                   }}
-                  className="lift flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-fg-2 hover:text-fg hover:bg-hover cursor-pointer"
+                  className="lift flex items-center gap-1 px-2 py-1 rounded-lg text-fg-2 hover:text-fg hover:bg-hover cursor-pointer"
+                  title="Buat file baru"
                 >
                   <FilePlus className="w-3.5 h-3.5 text-lagoon" />
-                  File
+                  +File
+                </button>
+
+                <div className="h-3.5 w-px bg-line mx-0.5" />
+
+                <button
+                  type="button"
+                  onClick={() => fileUploadRef.current?.click()}
+                  disabled={isUploadingExplorer}
+                  title="Impor file dari komputer ke project ini"
+                  className="lift flex items-center gap-1 px-2 py-1 rounded-lg text-fg-2 hover:text-fg hover:bg-hover cursor-pointer"
+                >
+                  {isUploadingExplorer ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />
+                  ) : (
+                    <FilePlus className="w-3.5 h-3.5 text-moss" />
+                  )}
+                  Impor File
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleConnectLocal}
+                  disabled={isUploadingExplorer}
+                  title="Hubungkan folder asli di komputer; perubahan file dibaca sebelum chat"
+                  className="lift flex items-center gap-1 px-2.5 py-1 rounded-lg bg-accent/15 hover:bg-accent/25 border border-accent/30 text-accent font-bold text-xs cursor-pointer shadow-xs transition-colors"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  Hubungkan Folder Lokal
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => folderUploadRef.current?.click()}
+                  disabled={isUploadingExplorer}
+                  title="Pilih folder lokal dan salin filenya ke project aktif agar AI bisa membacanya"
+                  className="lift flex items-center gap-1 px-2.5 py-1 rounded-lg bg-accent/15 hover:bg-accent/25 border border-accent/30 text-accent font-bold text-xs cursor-pointer shadow-xs transition-colors"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  Impor Folder Lokal
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await fetch("/api/fs", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "open_finder", projectId: activeProjectId }),
+                      });
+                      setExplorerMsg({ text: "Membuka folder project di Finder Mac...", ok: true });
+                    } catch (e: any) {
+                      setExplorerMsg({ text: e.message, ok: false });
+                    }
+                  }}
+                  title="Buka folder project langsung di Finder Mac"
+                  className="lift flex items-center gap-1 px-2 py-1 rounded-lg text-fg-2 hover:text-fg hover:bg-hover cursor-pointer text-fg-3"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Finder Mac
                 </button>
               </div>
+
               <button
                 onClick={() => fetchTree()}
                 disabled={treeLoading}
                 title="Muat ulang daftar file"
                 aria-label="Muat ulang daftar file"
-                className="p-1.5 rounded-lg text-fg-3 hover:text-fg hover:bg-hover cursor-pointer"
+                className="p-1.5 rounded-lg text-fg-3 hover:text-fg hover:bg-hover cursor-pointer shrink-0"
               >
                 <RotateCw className={`w-3.5 h-3.5 ${treeLoading ? "animate-spin text-accent" : ""}`} />
               </button>
@@ -1029,21 +1336,218 @@ export function RightWorkspacePanel({
               </form>
             )}
 
-            {/* Tree View List */}
-            <div className="flex-1 overflow-y-auto p-2.5 space-y-0.5">
-              {treeLoading && tree.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-fg-3">
-                  <Loader2 className="w-6 h-6 animate-spin text-accent mb-2" />
-                  <span className="text-xs font-mono">Memuat struktur direktori...</span>
-                </div>
-              ) : tree.length === 0 ? (
-                <div className="text-center py-16 text-xs font-mono text-fg-3">
-                  Direktori kosong atau belum terindeks.
-                </div>
-              ) : (
-                tree.map((node) => renderFileNode(node, 0))
+            {/* Code Search Bar (Lumen/Codebase engine mandiri tanpa Ollama) */}
+            <div className="px-3 py-1.5 border-b border-line flex items-center gap-2 text-xs bg-base/50">
+              <Search className={`w-3.5 h-3.5 shrink-0 ${isSearchingCode ? "animate-pulse text-accent" : "text-fg-3"}`} />
+              <input
+                type="text"
+                value={codeSearchQuery}
+                onChange={(e) => setCodeSearchQuery(e.target.value)}
+                placeholder="Cari simbol, fungsi, class di kode..."
+                className="flex-1 bg-transparent text-fg placeholder:text-fg-3 text-xs outline-hidden"
+              />
+              {codeSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setCodeSearchQuery("")}
+                  className="p-0.5 text-fg-3 hover:text-fg rounded cursor-pointer"
+                  title="Hapus pencarian"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               )}
             </div>
+
+            {/* Code Search Results OR Tree View */}
+            {codeSearchQuery.trim() ? (
+              <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
+                {isSearchingCode && !codeSearchResults ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-fg-3">
+                    <Loader2 className="w-5 h-5 animate-spin text-accent mb-2" />
+                    <span className="text-xs font-mono">Mencari simbol di kode...</span>
+                  </div>
+                ) : !codeSearchResults || codeSearchResults.hits.length === 0 ? (
+                  <div className="text-center py-12 text-xs font-mono text-fg-3">
+                    Tidak ditemukan kode dengan kata kunci &quot;{codeSearchQuery}&quot;
+                  </div>
+                ) : (
+                  <>
+                    <div className="px-1 text-[11px] font-mono text-fg-3 flex items-center justify-between">
+                      <span>Ditemukan {codeSearchResults.hits.length} cuplikan ({codeSearchResults.stats?.symbols || 0} simbol di {codeSearchResults.stats?.files || 0} file)</span>
+                    </div>
+                    {codeSearchResults.hits.map((hit, idx) => (
+                      <div
+                        key={`${hit.file}-${hit.startLine}-${idx}`}
+                        className="rounded-xl border border-line bg-raised/50 hover:bg-raised transition-colors overflow-hidden"
+                      >
+                        <div
+                          onClick={() => openFilePath(hit.file)}
+                          className="px-3 py-1.5 bg-base/60 border-b border-line/60 flex items-center justify-between gap-2 cursor-pointer hover:bg-hover"
+                        >
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <FileCode className="w-3.5 h-3.5 text-lagoon shrink-0" />
+                            <span className="text-xs font-mono font-medium text-fg truncate">{hit.file}</span>
+                            <span className="text-[10px] text-fg-3 font-mono shrink-0">L{hit.startLine}-{hit.endLine}</span>
+                          </div>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/10 text-accent font-mono shrink-0">
+                            skor {hit.score}
+                          </span>
+                        </div>
+
+                        {hit.symbols.length > 0 && (
+                          <div className="px-3 py-1 bg-base/30 border-b border-line/40 flex flex-wrap gap-1">
+                            {hit.symbols.map((sym, sIdx) => (
+                              <span
+                                key={sIdx}
+                                className="text-[10px] px-1.5 py-0.5 rounded-md bg-hover text-fg-2 font-mono flex items-center gap-1"
+                              >
+                                <span className="text-accent">{sym.kind}</span>
+                                <span className="font-semibold">{sym.name}</span>
+                                <span className="text-fg-3">:{sym.line}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {hit.importedBy.length > 0 && (
+                          <div className="px-3 py-0.5 text-[10px] text-fg-3 font-mono bg-base/20 border-b border-line/40 truncate">
+                            Diimpor oleh: {hit.importedBy.join(", ")}
+                          </div>
+                        )}
+
+                        <pre
+                          onClick={() => openFilePath(hit.file)}
+                          className="p-2.5 text-[11px] font-mono text-fg-2 overflow-x-auto whitespace-pre cursor-pointer hover:bg-hover/30"
+                        >
+                          {hit.snippet}
+                        </pre>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            ) : (
+              /* Tree View List */
+              <div className="flex-1 overflow-y-auto p-2.5 space-y-0.5">
+                {treeLoading && tree.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-fg-3">
+                    <Loader2 className="w-6 h-6 animate-spin text-accent mb-2" />
+                    <span className="text-xs font-mono">Memuat struktur direktori...</span>
+                  </div>
+                ) : tree.length === 0 ? (
+                  <div className="text-center py-16 text-xs font-mono text-fg-3">
+                    Direktori kosong atau belum terindeks.
+                  </div>
+                ) : (
+                  tree.map((node) => renderFileNode(node, 0))
+                )}
+              </div>
+            )}
+
+            {/* Modal / Overlay File Viewer & Editor */}
+            {activeFile && (
+              <div className="absolute inset-0 z-50 bg-raised/95 backdrop-blur-md flex flex-col animate-in fade-in duration-200">
+                {/* Header Modal */}
+                <div className="px-3.5 py-2.5 border-b border-line flex items-center justify-between gap-3 bg-base/60">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileCode className="w-4 h-4 text-lagoon shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-fg truncate">{activeFile.name}</div>
+                      <div className="text-[10px] text-fg-3 font-mono truncate">
+                        {activeFile.relativePath} • {activeFile.size > 1024 ? `${(activeFile.size / 1024).toFixed(1)} KB` : `${activeFile.size} B`}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {!activeFile.isBinary && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(activeFile.content);
+                            setExplorerMsg({ text: "Konten file disalin!", ok: true });
+                            setTimeout(() => setExplorerMsg(null), 2000);
+                          }}
+                          className="lift px-2 py-1 rounded-lg text-fg-2 hover:text-fg hover:bg-hover text-xs flex items-center gap-1 cursor-pointer"
+                          title="Salin isi file"
+                        >
+                          <Copy className="w-3 h-3" />
+                          Salin
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (activeFile.isEditing) {
+                              handleSaveActiveFile();
+                            } else {
+                              setActiveFile((prev) => (prev ? { ...prev, isEditing: true } : null));
+                            }
+                          }}
+                          className={`lift px-2.5 py-1 rounded-lg text-xs flex items-center gap-1 cursor-pointer ${
+                            activeFile.isEditing
+                              ? "bg-accent text-on-accent hover:bg-accent-hi"
+                              : "text-fg-2 hover:text-fg hover:bg-hover"
+                          }`}
+                          title={activeFile.isEditing ? "Simpan perubahan" : "Edit file"}
+                        >
+                          {activeFile.isEditing ? (
+                            <>
+                              <Save className="w-3 h-3" />
+                              Simpan
+                            </>
+                          ) : (
+                            <>
+                              <Edit3 className="w-3 h-3" />
+                              Edit
+                            </>
+                          )}
+                        </button>
+                      </>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveFile(null)}
+                      className="p-1 rounded-lg text-fg-3 hover:text-fg hover:bg-hover cursor-pointer"
+                      title="Tutup"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Konten File */}
+                <div className="flex-1 overflow-auto p-3.5 font-mono text-xs">
+                  {activeFileLoading ? (
+                    <div className="h-full flex items-center justify-center text-fg-3 gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin text-accent" />
+                      <span>Membuka file...</span>
+                    </div>
+                  ) : activeFile.isBinary ? (
+                    <div className="h-full flex flex-col items-center justify-center text-fg-3 gap-2">
+                      <AlertCircle className="w-6 h-6 text-glow" />
+                      <p>Pratinjau langsung tidak tersedia untuk format biner ({activeFile.name}).</p>
+                    </div>
+                  ) : activeFile.isEditing ? (
+                    <textarea
+                      value={activeFile.content}
+                      onChange={(e) => {
+                        const nextContent = e.target.value;
+                        setActiveFile((prev) => (prev ? { ...prev, content: nextContent } : null));
+                      }}
+                      className="w-full h-full bg-base border border-line-strong rounded-xl p-3 text-fg font-mono text-xs outline-hidden focus:border-accent resize-none leading-relaxed"
+                      autoFocus
+                    />
+                  ) : (
+                    <pre className="text-fg whitespace-pre-wrap break-all leading-relaxed select-text">
+                      <code>{activeFile.content}</code>
+                    </pre>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1052,6 +1556,40 @@ export function RightWorkspacePanel({
           <div className="flex-1 flex flex-col overflow-hidden bg-base font-mono text-xs">
             {/* Quick Command Pills */}
             <div className="p-2 bg-raised border-b border-line flex items-center gap-1.5 overflow-x-auto scrollbar-none text-[11px]">
+              <button onClick={() => executeCommand("npm run dev")} disabled={isRunningCmd} className="px-2 py-0.5 bg-raised hover:bg-hover text-accent border border-line-strong rounded-lg shrink-0">npm dev</button>
+              <button onClick={() => executeCommand("status server")} disabled={isRunningCmd} className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 border border-line-strong rounded-lg shrink-0">Status server</button>
+              <button onClick={() => executeCommand("stop server")} disabled={isRunningCmd} className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 border border-line-strong rounded-lg shrink-0">Stop server</button>
+              <button
+                onClick={() => executeCommand("node -v && npm -v")}
+                disabled={isRunningCmd}
+                className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg shrink-0 text-accent font-medium"
+                title="Cek versi Node.js & NPM di sistem"
+              >
+                node & npm
+              </button>
+              <button
+                onClick={() => executeCommand("npm init -y")}
+                disabled={isRunningCmd}
+                className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg shrink-0 text-glow"
+                title="Inisialisasi package.json di folder project aktif"
+              >
+                npm init
+              </button>
+              <button
+                onClick={() => executeCommand("npm install")}
+                disabled={isRunningCmd}
+                className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg shrink-0 text-moss"
+                title="Install semua dependensi package.json"
+              >
+                npm install
+              </button>
+              <button
+                onClick={() => executeCommand("npm run build")}
+                disabled={isRunningCmd}
+                className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg shrink-0 text-lagoon"
+              >
+                npm build
+              </button>
               <button
                 onClick={() => executeCommand("git status")}
                 disabled={isRunningCmd}
@@ -1062,23 +1600,9 @@ export function RightWorkspacePanel({
               <button
                 onClick={() => executeCommand("git add -A && git status")}
                 disabled={isRunningCmd}
-                className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg shrink-0 text-moss"
-              >
-                git add all
-              </button>
-              <button
-                onClick={() => executeCommand("npm run build")}
-                disabled={isRunningCmd}
-                className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg shrink-0 text-lagoon"
-              >
-                npm build
-              </button>
-              <button
-                onClick={() => executeCommand("vercel --version")}
-                disabled={isRunningCmd}
                 className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg shrink-0"
               >
-                vercel info
+                git add all
               </button>
               <button
                 onClick={() => executeCommand("ls -la")}
@@ -1086,6 +1610,13 @@ export function RightWorkspacePanel({
                 className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg shrink-0"
               >
                 ls -la
+              </button>
+              <button
+                onClick={() => setLogs([])}
+                className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-3 hover:text-fg border border-line-strong rounded-lg shrink-0 ml-auto"
+                title="Bersihkan log output terminal"
+              >
+                clear
               </button>
             </div>
 
@@ -1113,7 +1644,7 @@ export function RightWorkspacePanel({
                   )}
 
                   <div className="flex items-center gap-1.5 text-[10px]">
-                    {log.exitCode === 0 ? (
+                    {log.running ? <span className="text-accent">{log.ready ? "Server berjalan · HTTP diperiksa" : "Proses berjalan · menunggu server siap"}</span> : log.exitCode === null ? <span className="text-fg-3">Proses berhenti / tidak aktif</span> : log.exitCode === 0 ? (
                       <span className="text-moss flex items-center gap-1">
                         <Check className="w-3 h-3" /> Exited 0
                       </span>
@@ -1122,6 +1653,7 @@ export function RightWorkspacePanel({
                         <AlertCircle className="w-3 h-3" /> Exited {log.exitCode}
                       </span>
                     )}
+                    {log.previewUrl && <a href={log.previewUrl} target="_blank" rel="noopener noreferrer" className="ml-2 text-accent underline">Buka server</a>}
                   </div>
                 </div>
               ))}
@@ -1142,7 +1674,7 @@ export function RightWorkspacePanel({
                 value={inputCmd}
                 onChange={(e) => setInputCmd(e.target.value)}
                 disabled={isRunningCmd}
-                placeholder="Ketik perintah terminal (git, npm, vercel)..."
+                placeholder="Ketik perintah terminal (contoh: npm i lucide-react, npm run dev, git status)..."
                 className="flex-1 bg-transparent text-fg outline-hidden placeholder-fg-4 text-xs font-mono"
               />
               <button
@@ -1274,7 +1806,7 @@ export function RightWorkspacePanel({
                     setGitToken(e.target.value);
                     localStorage.setItem("vox_github_token", e.target.value);
                   }}
-                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                  placeholder="Tempel API key di sini"
                   className="w-full bg-base border border-line-strong rounded-lg px-2.5 py-1.5 text-fg text-xs outline-hidden focus:border-lagoon"
                 />
               </div>

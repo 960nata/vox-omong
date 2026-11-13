@@ -825,12 +825,12 @@ const QUALITY_BAR = 70;
 
 /** Tiap bagian diberi preferensi provider berbeda supaya beban tersebar dan model saling melengkapi. */
 const SECTION_PREFER: string[][] = [
-  ["groq", "cerebras"],
-  ["gemini", "openrouter"],
-  ["cerebras", "nvidia"],
-  ["openrouter", "groq"],
-  ["nvidia", "gemini"],
-  ["mistral", "cerebras"],
+  ["deepseek", "groq", "cheap"],
+  ["claude-haiku-5.5", "deepseek"],
+  ["cheap", "deepseek"],
+  ["deepseek", "claude-haiku-5.5"],
+  ["cheap", "groq"],
+  ["deepseek", "cheap"],
 ];
 
 const SECTION_TOKENS: Record<SType, number> = {
@@ -1269,9 +1269,10 @@ Aturan:
 - Pertanyaan atau obrolan yang tidak meminta mengubah website → "chat".
 - Jika user menyebut stack lain (next.js, react, laravel, flutter, go, php), isi wantsStack; tetap tentukan action untuk bagian desainnya.`,
       apiKey,
-      maxTokens: 450,
-      timeoutMs: 25_000,
-      prefer: ["groq", "cerebras"],
+      maxTokens: 200,
+      timeoutMs: 15_000,
+      fast: true,
+      prefer: ["cheap", "deepseek", "groq"],
     });
     const o = O(parseJsonLoose<unknown>(r.text));
     const action = S(o.action, 10);

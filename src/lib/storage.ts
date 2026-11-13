@@ -61,7 +61,7 @@ export async function getConversation(id: string): Promise<Conversation | null> 
   return db.conversations.find((c) => c.id === id) || null;
 }
 
-export async function createConversation(title?: string): Promise<Conversation> {
+export async function createConversation(title?: string, empty?: boolean): Promise<Conversation> {
   const db = await ensureDb();
   const id = `conv-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
   const now = new Date().toISOString();
@@ -70,15 +70,17 @@ export async function createConversation(title?: string): Promise<Conversation> 
     title: title || "Percakapan Baru",
     createdAt: now,
     updatedAt: now,
-    messages: [
-      {
-        id: `msg-${Date.now()}`,
-        conversationId: id,
-        role: "assistant",
-        content: "Halo! Saya siap mendengar. Ada yang bisa saya bantu hari ini?",
-        timestamp: now,
-      },
-    ],
+    messages: empty
+      ? []
+      : [
+          {
+            id: `msg-${Date.now()}`,
+            conversationId: id,
+            role: "assistant",
+            content: "Halo! Saya siap mendengar. Ada yang bisa saya bantu hari ini?",
+            timestamp: now,
+          },
+        ],
   };
 
   db.conversations.unshift(newConv);
@@ -105,6 +107,7 @@ export async function addMessage(
     artifact?: any;
     artifacts?: any[];
     imageUri?: string;
+    attachedItem?: any;
   }
 ): Promise<Message> {
   const db = await ensureDb();
@@ -133,6 +136,7 @@ export async function addMessage(
     artifact: message.artifact,
     ...(message.artifacts?.length ? { artifacts: message.artifacts } : {}),
     imageUri: message.imageUri,
+    attachedItem: message.attachedItem,
   };
 
   conv.messages.push(newMessage);

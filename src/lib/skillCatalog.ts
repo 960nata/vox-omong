@@ -6,9 +6,26 @@
  * - svc: butuh akun/API layanan luar. Skill tetap dipakai sebagai panduan, tapi aksinya
  *   (kirim email, telepon, dll.) belum tersambung di aplikasi ini.
  */
-export type CatalogSkill = { repo: string; skill?: string; desc: string; kw: string; svc?: string };
+export type CatalogSkill = { repo: string; skill?: string; desc: string; kw: string; svc?: string; local?: boolean };
 
 export const SKILL_CATALOG: CatalogSkill[] = [
+  { repo: "local/anatomy", skill: "anatomy", local: true, desc: "Anatomy: positioning, naming, identitas visual, dan panduan brand", kw: "brand positioning|brand guidelines|brand identity|identitas visual|identitas merek|panduan brand|strategi branding" },
+  { repo: "local/caveman", skill: "caveman", local: true, desc: "Caveman: jawaban singkat dan hemat token tanpa membuang bukti penting", kw: "caveman|hemat token|irit token|jawaban singkat" },
+  { repo: "local/agency-agents", skill: "agency-agents", local: true, desc: "Agency Agents: metode agen spesialis (Frontend, Backend, UI/UX Designer, Reality Checker, Growth Hacker, Content Creator, Visual Storyteller, Brand Guardian)", kw: "agency[- ]agents?|agen spesialis|spesialis frontend|spesialis backend|reality checker|growth hacker|visual storyteller|brand guardian" },
+  { repo: "local/oh-my-claude", skill: "oh-my-claude", local: true, desc: "Oh My Claude Code (OMC): orkestrasi multi-agen, mode ultrawork, dan koordinasi spesialis terfokus", kw: "oh[- ]my[- ]claude|omc|claude code|ultrawork|multi-?agent orchestration" },
+  { repo: "local/career-ops", skill: "career-ops", local: true, desc: "Career Ops: skor kecocokan lowongan, optimasi CV ATS, dan persiapan interview", kw: "career[- ]ops|carer ops|lowongan|job search|cari kerja|job posting|persiapan interview|cv ats|resume ats" },
+  { repo: "local/founder-skills", skill: "founder-skills", local: true, desc: "Founder Skills: validasi ide startup, positioning ICP, model bisnis, dan pitch deck", kw: "founder[- ]skills?|fonder skills?|startup founder|pitch investor|fundraising|validasi ide|gtm founder" },
+  { repo: "local/hyperframes", skill: "hyperframes", local: true, desc: "HyperFrames: pembuatan video dan motion graphics presisi berbasis kode web deterministik", kw: "hyperframes|video coding|motion code|animasi kode|video web" },
+  { repo: "local/trading-skills", skill: "trading-skills", local: true, desc: "Trading Skills: manajemen risiko modal, kalkulasi ukuran posisi, dan validasi tesis trading", kw: "trading[- ]skills?|traders? skills?|position sizing|manajemen risiko trading|analisis pasar|tesis trading" },
+  { repo: "local/find-skills", skill: "find-skills", local: true, desc: "Find Skills: penemuan keahlian agen, pencocokan kebutuhan pengguna, dan komposisi alur kerja", kw: "find[- ]skills?|cari skill|temukan skill|rekomendasi skill|skill discovery" },
+  { repo: "local/graphify", skill: "graphify", local: true, desc: "Graphify: ekstraksi knowledge graph kode, relasi AST, dan reduksi konteks token", kw: "graphify|knowledge graph|graf kode|code graph|ast graph" },
+  { repo: "local/youtube-agent", skill: "youtube-agent", local: true, desc: "YouTube Agent: analisis transkrip, intisari bab video, dan perencanaan klip Shorts", kw: "youtube[- ]agent|youtube skills?|transkrip youtube|ringkasan youtube|klip youtube|catatan youtube" },
+  { repo: "local/omniroute", skill: "omniroute", local: true, desc: "OmniRoute: perutean model cerdas (smart routing), auto-fallback, dan efisiensi kuota", kw: "omniroute|smart model routing|perutean model|circuit breaker llm|multi-?provider llm" },
+  { repo: "local/claude-mem", skill: "claude-mem", local: true, desc: "Claude-Mem & Headroom: memori persisten lintas sesi dan kompresi token konteks", kw: "claude[- ]mem|cloude mem|memhead room|headroom|memori persisten|kompresi konteks|persistent memory" },
+  { repo: "local/claude-code-setup", skill: "claude-code-setup", local: true, desc: "Claude Code Setup: panduan penyiapan lingkungan CLI, konfigurasi .claude/ dan .mcp.json", kw: "claude[- ]code[- ]setup|clode code setup|setup claude code|instal claude code" },
+  { repo: "local/task-observer", skill: "task-observer", local: true, desc: "Task Observer: pemantauan loop observasi sesi kerja, friksi alur, dan pencatatan koreksi", kw: "task[- ]observer|taskt observer|observasi tugas|pengamatan sesi|evaluasi alur" },
+  { repo: "local/instagram-agent", skill: "instagram-agent", local: true, desc: "Instagram Agent: copywriting carousel edukatif, formula hook Reels, dan strategi hashtag", kw: "instagram[- ]agent|iinstagram agent|konten instagram|carousel instagram|reels instagram|caption instagram" },
+  { repo: "local/academic-research", skill: "academic-research", local: true, desc: "Academic Research: telaah pustaka sistematis (literature review), sintesis jurnal, dan sitasi", kw: "academic[- ]research|academic reserc|riset akademik|literature review|tinjauan pustaka|jurnal ilmiah" },
   // ---- Product management
   { repo: "deanpeters/Product-Manager-Skills", skill: "prd-development", desc: "PM: discovery, prioritas, PRD, roadmap, metrik SaaS", kw: "prd|roadmap|product manager|prioritas fitur|prioritization|discovery produk|metrik saas|acquisition channel" },
   { repo: "product-on-purpose/pm-skills", skill: "deliver-user-stories", desc: "68 skill PM: discovery, definition, delivery, iteration", kw: "user story|product spec|sprint planning|okr|product requirement|backlog" },
@@ -53,7 +70,7 @@ export const SKILL_CATALOG: CatalogSkill[] = [
   { repo: "rockscy/solo-skills", skill: "launch-tweet", desc: "Solo founder: tweet launch, email customer, postmortem", kw: "launch tweet|postmortem|indie dev|solo founder|email customer" },
   { repo: "ReScienceLab/opc-skills", skill: "seo-geo", desc: "Solopreneur: SEO, geo, tool LLM", kw: "solopreneur|seo|geo optimization" },
   { repo: "Swiftner/Factory-Floor", desc: "Coaching startup: cari bottleneck (Theory of Constraints)", kw: "bottleneck|theory of constraints|customer factory|growth startup" },
-  { repo: "vonarmen-wq/forward-deployed-selling", desc: "Metodologi sales AI enterprise: ICP, GTM, deal", kw: "sales|icp|go.to.market|gtm|deal coaching|jualan b2b" },
+  { repo: "vonarmen-wq/forward-deployed-selling", desc: "Metodologi sales AI enterprise: ICP, GTM, deal", kw: "sales|icp|deal coaching|jualan b2b|enterprise sales" },
   { repo: "EveryInc/charlie-cfo-skill", desc: "Manajemen keuangan bootstrapped ala Charlie Munger", kw: "cfo|keuangan startup|burn rate|runway|cash ?flow bisnis" },
   { repo: "openaccountants/openaccountants", skill: "id-freelance-intake", desc: "Klasifikasi pajak 134 negara", kw: "pajak|tax|pph|ppn|spt" },
   { repo: "Paramchoudhary/ResumeSkills", skill: "resume-ats-optimizer", desc: "Optimasi CV, ATS, persiapan interview", kw: "\\bcv\\b|resume|ats|interview kerja|wawancara kerja|lamaran kerja" },

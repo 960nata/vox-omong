@@ -6,6 +6,10 @@ import { designBrief, topUxRules } from "./uiuxKnowledge";
 import { loadSkill, skillSections } from "./skillLoader";
 import { VOX_PROMPT } from "./voxRuntime";
 import { repairInlineScripts } from "./jsRepair";
+import { readOpenAICompletion } from "./llmStream";
+import { recordLlmUsage } from "./tokenTracker";
+import { MODEL_CREDIT_MULTIPLIERS } from "./tokenPricing";
+import type { AIMode } from "./types";
 
 /**
  * Code agent: menghasilkan / mengedit website satu-file (HTML + Tailwind CDN + JS)
@@ -93,6 +97,8 @@ export async function callLLM({
   json,
   temperature,
   fast,
+  onText,
+  imageDataUri,
 }: {
   /** Minta keluaran JSON murni (mode JSON asli di Gemini). */
   json?: boolean;
@@ -100,6 +106,10 @@ export async function callLLM({
   temperature?: number;
   /** Tugas kecil: matikan "thinking" Gemini supaya cepat dan hemat token. */
   fast?: boolean;
+  /** Teks bertahap untuk panggilan suara; gateway JSON biasa mengirim sekali di akhir. */
+  onText?: (chunk: string) => void;
+  /** Gambar untuk visual scanning / AI Vision. */
+  imageDataUri?: string;
   system: string;
   prompt: string;
   apiKey?: string;
@@ -109,15 +119,19 @@ export async function callLLM({
   /** Provider gateway yang didahulukan untuk peran ini (mis. ["gemini"]). Diabaikan bila gateway belum mendukung. */
   prefer?: string[];
 }): Promise<{ text: string; model: string }> {
-  const key = apiKey || process.env.AI_GATEWAY_KEY || (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) || "";
   const errors: string[] = [];
   const temp = temperature ?? (json ? 0.2 : 0.6);
-  const cacheKey = temp <= 0.3 ? `${maxTokens}|${system}|${prompt}` : "";
+  const cacheKey = temp <= 0.3 ? `${fast ? "fast" : "quality"}|${prefer?.join(",") || "auto"}|${maxTokens}|${system}|${prompt}` : "";
   if (cacheKey) {
     const hit = LLM_CACHE.get(cacheKey);
-    if (hit && Date.now() - hit.t < 10 * 60_000) return { text: hit.text, model: hit.model };
+    if (hit && Date.now() - hit.t < 10 * 60_000) {
+      onText?.(hit.text);
+      return { text: hit.text, model: hit.model };
+    }
   }
+  let emitted = false;
   const done = (text: string, model: string) => {
+    if (!emitted) onText?.(text);
     if (cacheKey) {
       LLM_CACHE.set(cacheKey, { text, model, t: Date.now() });
       if (LLM_CACHE.size > 80) LLM_CACHE.delete(LLM_CACHE.keys().next().value as string);
@@ -126,7 +140,39 @@ export async function callLLM({
   };
 
   // 1. Google Gemini (dipakai kalau ada key AIzaSy… — paling bagus untuk kode panjang)
-  const geminiKey = key.startsWith("AIzaSy") ? key : (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+  const rawUrl = process.env.AI_GATEWAY_URL || "https://router.classai.id/v1";
+  const isOpenAI = rawUrl.includes("classai.id") || rawUrl.endsWith("/v1") || rawUrl.includes("/chat/completions");
+  const isClassAiRouter = rawUrl.includes("classai.id");
+  const defaultGwKey = process.env.AI_GATEWAY_KEY_CHEAP || process.env.AI_GATEWAY_KEY || "";
+
+  // Helper verifikasi key ClassAI Router: WAJIB diawali "sk_live_" dan minimal 40 karakter
+  const isClassAiKeyFormat = (k?: string) => Boolean(k && k.trim().startsWith("sk_live_") && k.trim().length >= 40);
+
+  // Filter explicitGatewayKey:
+  // Jika target gateway adalah ClassAI Router, JANGAN gunakan key jika bukan format sk_live_ (misal: "aigw_...", "sk-...", dll).
+  // Mengirim key selain sk_live_ ke router.classai.id akan menyebabkan HTTP 401 Authentication Error.
+  let explicitGatewayKey: string | undefined = undefined;
+  if (apiKey && typeof apiKey === "string" && apiKey.trim().length > 0) {
+    const trimmed = apiKey.trim();
+    if (isClassAiRouter) {
+      if (isClassAiKeyFormat(trimmed)) {
+        explicitGatewayKey = trimmed;
+      }
+    } else if (/^(aigw_|sk_|sk-)/.test(trimmed) || trimmed.length >= 8) {
+      explicitGatewayKey = trimmed;
+    }
+  }
+
+  const firstPreference = prefer?.[0]?.toLowerCase() || "";
+  const preferGateway = !!(explicitGatewayKey || defaultGwKey) && /sonnet|opus|claude|anthropic|deepseek|qwen|cheap|groq|ollama/.test(firstPreference);
+  const isHybrid = prefer?.some((x) => x.toLowerCase().includes("hybrid") || x.toLowerCase().includes("free") || x.toLowerCase().includes("gemini"));
+  const geminiKey = (apiKey && apiKey.startsWith("AIzaSy"))
+    ? apiKey
+    : (isHybrid || firstPreference.includes("gemini"))
+    ? (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)
+    : (explicitGatewayKey || preferGateway)
+    ? undefined
+    : (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
   if (geminiKey) {
     // Kena limit (429) atau server sibuk (500/503): tunggu sebentar lalu coba sekali lagi
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -142,9 +188,9 @@ export async function callLLM({
               contents: [{ role: "user", parts: [{ text: prompt }] }],
               generationConfig: {
                 temperature: temp,
-                maxOutputTokens: fast ? Math.max(maxTokens, 1024) : Math.max(maxTokens, 16000),
+                maxOutputTokens: maxTokens + (fast ? 0 : Math.min(2048, Math.ceil(maxTokens / 4))),
                 ...(json ? { responseMimeType: "application/json" } : {}),
-                ...(fast ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+                thinkingConfig: { thinkingBudget: fast ? 0 : Math.min(2048, Math.ceil(maxTokens / 4)) },
               },
             }),
           }
@@ -152,7 +198,16 @@ export async function callLLM({
         if (res.ok) {
           const data = await res.json();
           const text = (data.candidates?.[0]?.content?.parts || []).map((p: { text?: string }) => p.text || "").join("");
-          if (text.trim()) return done(text, "gemini-2.5-flash");
+          if (text.trim()) {
+            const usage = data.usageMetadata;
+            void recordLlmUsage({
+              model: "gemini-2.5-flash",
+              source: "gemini_direct",
+              promptTokens: usage?.promptTokenCount || Math.round((system.length + prompt.length) / 4),
+              completionTokens: usage?.candidatesTokenCount || Math.round(text.length / 4),
+            }).catch(() => {});
+            return done(text, "gemini-2.5-flash");
+          }
           errors.push("Gemini: respons kosong");
           break;
         }
@@ -169,38 +224,254 @@ export async function callLLM({
     }
   }
 
-  // 2. AI Gateway (aigw_…) — gateway melakukan failover antar model; coba ulang sekali bila 5xx
-  const gwKey = key.startsWith("aigw_") ? key : process.env.AI_GATEWAY_KEY;
-  if (gwKey) {
-    const url = process.env.AI_GATEWAY_URL || "https://aiinvestdesk.com/api/v1/ai/gateway";
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const res = await fetch(url, {
-          method: "POST",
-          signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${gwKey}` },
-          body: JSON.stringify({
-            agent: "custom",
-            // `system` & `prefer` dipakai gateway versi baru; prompt tetap memuat system untuk versi lama
-            system,
-            prefer,
-            prompt: `${system}\n\n=====\n\n${prompt}${json ? "\n\nBalas HANYA JSON valid. Tanpa teks lain, tanpa pagar kode." : ""}`,
-            temperature: temperature ?? (json ? 0.2 : 0.55),
-            json,
-            maxTokens,
-          }),
-        });
-        if (res.ok) {
-          const out = await res.json();
-          const text = out?.data?.response || (typeof out?.data === "string" ? out.data : "");
-          if (text && typeof text === "string") return done(text, out?.meta?.model || "ai-gateway");
-          errors.push("Gateway: respons kosong");
-        } else {
-          errors.push(`Gateway ${res.status}`);
-          if (res.status < 500) break;
+  // 2. AI Gateway (sk_live_… / custom / user gateway)
+  const userGwUrl = process.env.USER_GATEWAY_URL || "https://aiinvestdesk.com/api/v1/ai/gateway";
+  const userGwKey = process.env.USER_GATEWAY_KEY || "aigw_51d115a24f09241184a426302c08879e";
+  const isUserPrivateRequested = Boolean(
+    (apiKey && apiKey.startsWith("aigw_")) ||
+    (prefer && prefer.some((x) => x.toLowerCase().includes("user-private") || x.toLowerCase().includes("aigw")))
+  );
+
+  // Jika user memilih Gateway Pribadi lu secara eksplisit:
+  if (isUserPrivateRequested) {
+    try {
+      const activeUserKey = (apiKey && apiKey.startsWith("aigw_")) ? apiKey : userGwKey;
+      const res = await fetch(userGwUrl, {
+        method: "POST",
+        signal: AbortSignal.timeout(timeoutMs || 12000),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${activeUserKey}`,
+        },
+        body: JSON.stringify({
+          agent: "custom",
+          prefer: ["deepseek", "groq", "cerebras", "gemini"],
+          system,
+          prompt: `${system}\n\n=====\n\n${prompt}${json ? "\n\nBalas HANYA JSON valid. Tanpa teks lain, tanpa pagar kode." : ""}`,
+          temperature: temperature ?? (json ? 0.2 : 0.55),
+          json,
+          maxTokens,
+        }),
+      });
+      if (res.ok) {
+        const out = await res.json();
+        const text = out?.data?.response || out?.data?.code || (typeof out?.data === "string" ? out.data : "");
+        if (text && typeof text === "string" && text.trim()) {
+          void recordLlmUsage({
+            model: "user-private-gateway",
+            source: "custom_local",
+            promptTokens: Math.round((system.length + prompt.length) / 4),
+            completionTokens: Math.round(text.length / 4),
+          }).catch(() => {});
+          return done(text.trim(), "user-private-gateway");
         }
-      } catch (err) {
-        errors.push(`Gateway: ${(err as Error).message}`);
+      }
+      errors.push("Gateway Pribadi: respon kosong, failover ke router...");
+    } catch (err) {
+      errors.push(`Gateway Pribadi: ${(err as Error).message}, failover ke router...`);
+    }
+  }
+
+  // 3. ClassAI Router Gateway (sk_live_… / custom) — dengan Tameng 9s & Smart Failover
+  let activeGwKey = explicitGatewayKey || defaultGwKey;
+  if (activeGwKey) {
+    if (isOpenAI) {
+      const endpoint = rawUrl.endsWith("/chat/completions") ? rawUrl : `${rawUrl.replace(/\/+$/, "")}/chat/completions`;
+
+      // Pilih model sesuai preferensi (Mendukung SEMUA model di katalog router)
+      let targetModel = "deepseek-v4.1-flash";
+      if (prefer && prefer.length > 0) {
+        const first = prefer[0].trim();
+        const p = prefer.map((x) => x.toLowerCase());
+
+        if (first in MODEL_CREDIT_MULTIPLIERS) {
+          targetModel = first;
+        } else if (imageDataUri) {
+          targetModel = "claude-haiku-5.5"; // Model vision di Prime
+        } else if (p.some((x) => x.includes("coding-china"))) {
+          targetModel = "coding-china-auto";
+        } else if (p.some((x) => x.includes("coding-us"))) {
+          targetModel = "coding-us-auto";
+        } else if (p.some((x) => x.includes("grok"))) {
+          targetModel = "grok-4.7";
+        } else if (p.some((x) => x.includes("fable"))) {
+          targetModel = "claude-fable-5";
+        } else if (p.some((x) => x.includes("astra"))) {
+          targetModel = "gpt-6-astra";
+        } else if (p.some((x) => x.includes("kai-baik") || x.includes("kai"))) {
+          targetModel = "kai-baik";
+        } else if (p.some((x) => x.includes("hy3") || x.includes("hunyuan"))) {
+          targetModel = "hy3";
+        } else if (p.some((x) => x.includes("v4-pro") || x.includes("deepseek-pro"))) {
+          targetModel = "deepseek-v4-pro";
+        } else if (p.some((x) => x.includes("opus-5.5") || x.includes("opus 5.5"))) {
+          targetModel = process.env.AI_GATEWAY_KEY_PREMIUM ? "claude-opus-5.5" : "claude-haiku-5.5";
+        } else if (p.some((x) => x.includes("opus-5") || x.includes("opus 5") || (x.includes("opus") && !x.includes("haiku")))) {
+          targetModel = process.env.AI_GATEWAY_KEY_PREMIUM ? "claude-opus-5" : "claude-haiku-5.5";
+        } else if (p.some((x) => x.includes("sonnet-5.5") || x.includes("sonnet 5.5"))) {
+          targetModel = "claude-sonnet-5.5";
+        } else if (p.some((x) => x.includes("sonnet-5") || x.includes("sonnet 5"))) {
+          targetModel = "claude-sonnet-5";
+        } else if (p.some((x) => x.includes("sonnet-4.6") || x.includes("sonnet 4.6"))) {
+          targetModel = "claude-sonnet-4.6";
+        } else if (p.some((x) => x.includes("haiku-4.5") || x.includes("sonnet-4.5") || x.includes("haiku 4.5"))) {
+          targetModel = "claude-haiku-4.5";
+        } else if (p.some((x) => x.includes("haiku") || x.includes("claude") || x.includes("anthropic"))) {
+          targetModel = "claude-haiku-5.5"; // Claude Prime super hemat & responsif
+        } else if (p.some((x) => x.includes("sonnet"))) {
+          targetModel = "claude-sonnet-5.5";
+        } else if (p.some((x) => x.includes("gpt-6.1") || x.includes("6.1-sol"))) {
+          targetModel = "gpt-6.1-sol";
+        } else if (p.some((x) => x.includes("gpt-6") || x.includes("gpt6"))) {
+          targetModel = "gpt-6-sol";
+        } else if (p.some((x) => x.includes("gpt-5.6-terra") || x.includes("terra"))) {
+          targetModel = "gpt-5.6-terra";
+        } else if (p.some((x) => x.includes("gpt-5") || x.includes("gpt5"))) {
+          targetModel = "gpt-5.6-luna";
+        } else if (p.some((x) => x.includes("qwen-max") || x.includes("qwen3.8-max") || x.includes("qwen 3.8"))) {
+          targetModel = "qwen3.8-max";
+        } else if (p.some((x) => x.includes("qwen3.7-max"))) {
+          targetModel = "qwen3.7-max";
+        } else if (p.some((x) => x.includes("qwen-plus") || x.includes("qwen3.7-plus") || x.includes("qwen 3.7") || x.includes("qwen"))) {
+          targetModel = "qwen3.7-plus";
+        } else if (p.some((x) => x.includes("super-vl"))) {
+          targetModel = "nemotron-3.5-super-vl:free";
+        } else if (p.some((x) => x.includes("nemotron"))) {
+          targetModel = "nemotron-3.5-lightning:free"; // NVIDIA Free 100%
+        } else if (p.some((x) => x.includes("north") || x.includes("cohere"))) {
+          targetModel = "north-mini-code:free"; // Cohere Code Free 100%
+        } else if (p.some((x) => x.includes("solar"))) {
+          targetModel = "solar-mini4:free"; // Upstage Solar Free 100%
+        } else if (p.some((x) => x.includes("gemma"))) {
+          targetModel = "gemma-4-31b:free";
+        } else if (p.some((x) => x.includes("longcat"))) {
+          targetModel = "longcat-2.5:free";
+        } else if (p.some((x) => x.includes("minimax-m3"))) {
+          targetModel = "minimax-m3";
+        } else if (p.some((x) => x.includes("minimax"))) {
+          targetModel = "minimax-m2.7"; // MiniMax Kilat & Murah (~5 kredit/token)
+        } else if (p.some((x) => x.includes("kimi-code") || x.includes("k2.7"))) {
+          targetModel = "kimi-k2.7-code"; // Moonshot Code Synthesizer
+        } else if (p.some((x) => x.includes("kimi"))) {
+          targetModel = "kimi-k3";
+        } else if (p.some((x) => x.includes("glm-5.3-flash"))) {
+          targetModel = "glm-5.3-flash";
+        } else if (p.some((x) => x.includes("glm"))) {
+          targetModel = "glm-5.3";
+        } else {
+          targetModel = "deepseek-v4.1-flash";
+        }
+      }
+
+      // Smart Waterfall: 3 attempts dengan tameng timeout agar tidak mogok
+      for (let attempt = 0; attempt < 3; attempt++) {
+        // Attempt 0: Model yang dipilih lu
+        // Attempt 1: Failover ke DeepSeek Flash (kenceng & stabil 2s)
+        // Attempt 2: Failover ke Gateway Pribadi / Model Free
+        const model = attempt === 0 ? targetModel : attempt === 1 ? "deepseek-v4.1-flash" : "nemotron-3.5-lightning:free";
+        const isOpus = model.startsWith("claude-opus");
+        const requestKey = (isOpus && process.env.AI_GATEWAY_KEY_PREMIUM)
+          ? process.env.AI_GATEWAY_KEY_PREMIUM
+          : activeGwKey;
+
+        // Model berat (Claude Sonnet/Opus/GPT-6) dijaga max 9 detik agar tidak kena 499 hanging
+        const isHeavyModel = /opus|sonnet|gpt-6/.test(model);
+        const effectiveTimeout = timeoutMs || (isHeavyModel ? 25000 : maxTokens >= 2000 ? 75000 : 35000);
+
+        try {
+          const userContent = imageDataUri
+            ? [
+                {
+                  type: "text",
+                  text: `${prompt}${json ? "\n\nBalas HANYA JSON valid. Tanpa teks lain, tanpa pagar kode." : ""}`,
+                },
+                {
+                  type: "image_url",
+                  image_url: { url: imageDataUri },
+                },
+              ]
+            : `${prompt}${json ? "\n\nBalas HANYA JSON valid. Tanpa teks lain, tanpa pagar kode." : ""}`;
+
+          const res = await fetch(endpoint, {
+            method: "POST",
+            signal: AbortSignal.timeout(effectiveTimeout),
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${requestKey}`,
+            },
+            body: JSON.stringify({
+              model,
+              messages: [
+                { role: "system", content: system },
+                { role: "user", content: userContent },
+              ],
+              temperature: temperature ?? (json ? 0.2 : 0.55),
+              max_tokens: maxTokens,
+              ...(onText ? { stream: true } : {}),
+              ...(json ? { response_format: { type: "json_object" } } : {}),
+            }),
+          });
+          if (res.ok) {
+            const out = await readOpenAICompletion(res, onText ? chunk => { emitted = true; onText(chunk); } : undefined);
+            if (out.text) {
+              void recordLlmUsage({
+                model: out.model || model,
+                source: model === "claude-opus-5.5" ? "classai_premium" : "classai_prime",
+                promptTokens: out.promptTokens || Math.round((system.length + prompt.length) / 4),
+                completionTokens: out.completionTokens || Math.round(out.text.length / 4),
+              }).catch(() => {});
+              return done(out.text, out.model || model);
+            }
+            errors.push("Router: respons kosong");
+          } else {
+            const errBody = await res.text().catch(() => "");
+            errors.push(`Router ${res.status}: ${errBody.slice(0, 100)}`);
+            // Jika 401 Unauthorized dan sedang memakai key custom/client, langsung fallback ke server default key (.env) dan retry!
+            if (res.status === 401 && defaultGwKey && requestKey !== defaultGwKey) {
+              activeGwKey = defaultGwKey;
+              continue;
+            }
+            if (res.status < 500 && res.status !== 429 && res.status !== 402) break;
+          }
+        } catch (err) {
+          if (emitted) throw err; // Jangan menagih ulang jawaban yang sudah mulai dikirim.
+          errors.push(`Router (${model}): ${(err as Error).message}`);
+        }
+      }
+    } else {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const res = await fetch(rawUrl, {
+            method: "POST",
+            signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${activeGwKey}` },
+            body: JSON.stringify({
+              agent: "custom",
+              // `system` & `prefer` dipakai gateway versi baru; prompt tetap memuat system untuk versi lama
+              system,
+              prefer,
+              prompt: `${system}\n\n=====\n\n${prompt}${json ? "\n\nBalas HANYA JSON valid. Tanpa teks lain, tanpa pagar kode." : ""}`,
+              temperature: temperature ?? (json ? 0.2 : 0.55),
+              json,
+              maxTokens,
+            }),
+          });
+          if (res.ok) {
+            const out = await res.json();
+            const text = out?.data?.response || (typeof out?.data === "string" ? out.data : "");
+            if (text && typeof text === "string") return done(text, out?.meta?.model || "ai-gateway");
+            errors.push("Gateway: respons kosong");
+          } else {
+            errors.push(`Gateway ${res.status}`);
+            if (res.status === 401 && defaultGwKey && activeGwKey !== defaultGwKey) {
+              activeGwKey = defaultGwKey;
+              continue;
+            }
+            if (res.status < 500) break;
+          }
+        } catch (err) {
+          errors.push(`Gateway: ${(err as Error).message}`);
+        }
       }
     }
   }
@@ -359,12 +630,169 @@ export interface WebsiteBuildResult {
 
 /** Satu putaran menulis HTML lengkap (dengan lanjutan otomatis bila terpotong). */
 /** Tiap peran rapat didahulukan ke provider berbeda supaya saling melengkapi. */
-export const ROLE_PREFER: Record<string, string[]> = {
-  arsitek: ["groq", "cerebras", "openrouter"],
-  developer: ["gemini", "openrouter"],
-  reviewer: ["openrouter", "nvidia", "groq"],
-  revisi: ["gemini", "openrouter"],
-};
+export function getRolePrefer(aiMode?: AIMode): Record<string, string[]> {
+  if (aiMode === "opus-5.5" || (aiMode === "opus" && process.env.AI_GATEWAY_KEY_PREMIUM)) {
+    return {
+      arsitek: ["claude-opus-5.5", "claude-haiku-5.5"],
+      developer: ["claude-opus-5.5", "claude-haiku-5.5"],
+      reviewer: ["claude-sonnet-5.5", "deepseek-v4.1-flash"],
+      revisi: ["claude-opus-5.5", "claude-haiku-5.5"],
+    };
+  }
+  if (aiMode === "opus-5.0") {
+    return {
+      arsitek: ["claude-opus-5.0", "claude-haiku-5.5"],
+      developer: ["claude-opus-5.0", "claude-haiku-5.5"],
+      reviewer: ["claude-sonnet-5.0", "deepseek-v4.1-flash"],
+      revisi: ["claude-opus-5.0", "claude-haiku-5.5"],
+    };
+  }
+  if (aiMode === "sonnet-5.5") {
+    return {
+      arsitek: ["claude-sonnet-5.5", "claude-haiku-5.5"],
+      developer: ["claude-sonnet-5.5", "deepseek-v4.1-flash"],
+      reviewer: ["deepseek", "deepseek-v4.1-flash"],
+      revisi: ["claude-sonnet-5.5", "claude-haiku-5.5"],
+    };
+  }
+  if (aiMode === "sonnet-5.0") {
+    return {
+      arsitek: ["claude-sonnet-5.0", "claude-haiku-5.5"],
+      developer: ["claude-sonnet-5.0", "deepseek-v4.1-flash"],
+      reviewer: ["deepseek", "deepseek-v4.1-flash"],
+      revisi: ["claude-sonnet-5.0", "claude-haiku-5.5"],
+    };
+  }
+  if (aiMode === "sonnet-4.6") {
+    return {
+      arsitek: ["claude-sonnet-4.6", "claude-haiku-5.5"],
+      developer: ["claude-sonnet-4.6", "deepseek-v4.1-flash"],
+      reviewer: ["deepseek", "deepseek-v4.1-flash"],
+      revisi: ["claude-sonnet-4.6", "claude-haiku-5.5"],
+    };
+  }
+  if (aiMode === "sonnet-4.5") {
+    return {
+      arsitek: ["claude-sonnet-4.5", "claude-haiku-5.5"],
+      developer: ["claude-sonnet-4.5", "deepseek-v4.1-flash"],
+      reviewer: ["deepseek", "deepseek-v4.1-flash"],
+      revisi: ["claude-sonnet-4.5", "claude-haiku-5.5"],
+    };
+  }
+  if (aiMode === "haiku-5.5" || aiMode === "sonnet") {
+    return {
+      arsitek: ["claude-haiku-5.5", "deepseek-v4.1-flash"],
+      developer: ["claude-haiku-5.5", "deepseek-v4.1-flash"],
+      reviewer: ["deepseek", "deepseek-v4.1-flash"],
+      revisi: ["claude-haiku-5.5", "deepseek-v4.1-flash"],
+    };
+  }
+  if (aiMode === "hybrid") {
+    return {
+      arsitek: ["gemini", "claude-haiku-5.5", "deepseek-v4.1-flash"],
+      developer: ["gemini", "deepseek", "deepseek-v4.1-flash"],
+      reviewer: ["gemini", "deepseek", "deepseek-v4.1-flash"],
+      revisi: ["gemini", "deepseek", "deepseek-v4.1-flash"],
+    };
+  }
+  if (aiMode === "flash") {
+    return {
+      arsitek: ["deepseek", "deepseek-v4.1-flash"],
+      developer: ["deepseek", "deepseek-v4.1-flash"],
+      reviewer: ["deepseek", "deepseek-v4.1-flash"],
+      revisi: ["deepseek", "deepseek-v4.1-flash"],
+    };
+  }
+  if (aiMode === "gpt-6-sol") {
+    return {
+      arsitek: ["gpt-6-sol", "deepseek-v4.1-flash"],
+      developer: ["gpt-6-sol", "deepseek-v4.1-flash"],
+      reviewer: ["qwen3.8-max", "deepseek-v4.1-flash"],
+      revisi: ["gpt-6-sol", "deepseek-v4.1-flash"],
+    };
+  }
+  if (aiMode === "gpt-5.6-luna") {
+    return {
+      arsitek: ["gpt-5.6-luna", "deepseek-v4.1-flash"],
+      developer: ["gpt-5.6-luna", "deepseek-v4.1-flash"],
+      reviewer: ["deepseek", "deepseek-v4.1-flash"],
+      revisi: ["gpt-5.6-luna", "deepseek-v4.1-flash"],
+    };
+  }
+  if (aiMode === "qwen-max") {
+    return {
+      arsitek: ["qwen3.8-max", "deepseek-v4.1-flash"],
+      developer: ["qwen3.8-max", "deepseek-v4.1-flash"],
+      reviewer: ["deepseek", "deepseek-v4.1-flash"],
+      revisi: ["qwen3.8-max", "deepseek-v4.1-flash"],
+    };
+  }
+  if (aiMode === "qwen-plus") {
+    return {
+      arsitek: ["qwen3.7-plus", "deepseek-v4.1-flash"],
+      developer: ["qwen3.7-plus", "deepseek-v4.1-flash"],
+      reviewer: ["deepseek", "deepseek-v4.1-flash"],
+      revisi: ["qwen3.7-plus", "deepseek-v4.1-flash"],
+    };
+  }
+  if (aiMode === "glm-5.3") {
+    return {
+      arsitek: ["glm-5.3", "deepseek-v4.1-flash"],
+      developer: ["glm-5.3", "deepseek-v4.1-flash"],
+      reviewer: ["deepseek", "deepseek-v4.1-flash"],
+      revisi: ["glm-5.3", "deepseek-v4.1-flash"],
+    };
+  }
+  if (aiMode === "minimax-m2.7") {
+    return {
+      arsitek: ["minimax-m2.7", "deepseek-v4.1-flash"],
+      developer: ["minimax-m2.7", "deepseek-v4.1-flash"],
+      reviewer: ["deepseek", "deepseek-v4.1-flash"],
+      revisi: ["minimax-m2.7", "deepseek-v4.1-flash"],
+    };
+  }
+  if (aiMode === "kimi-k3") {
+    return {
+      arsitek: ["kimi-k3", "deepseek-v4.1-flash"],
+      developer: ["kimi-k2.7-code", "deepseek-v4.1-flash"],
+      reviewer: ["deepseek", "deepseek-v4.1-flash"],
+      revisi: ["kimi-k3", "deepseek-v4.1-flash"],
+    };
+  }
+  if (aiMode === "user-private") {
+    return {
+      arsitek: ["user-private", "deepseek-v4.1-flash"],
+      developer: ["user-private", "deepseek-v4.1-flash"],
+      reviewer: ["user-private", "deepseek-v4.1-flash"],
+      revisi: ["user-private", "deepseek-v4.1-flash"],
+    };
+  }
+  if (aiMode === "free-nemotron") {
+    return {
+      arsitek: ["nemotron-3.5-lightning:free", "deepseek-v4.1-flash"],
+      developer: ["nemotron-3.5-lightning:free", "deepseek-v4.1-flash"],
+      reviewer: ["nemotron-3.5-lightning:free", "deepseek-v4.1-flash"],
+      revisi: ["nemotron-3.5-lightning:free", "deepseek-v4.1-flash"],
+    };
+  }
+  if (aiMode === "free-solar") {
+    return {
+      arsitek: ["solar-mini4:free", "deepseek-v4.1-flash"],
+      developer: ["solar-mini4:free", "deepseek-v4.1-flash"],
+      reviewer: ["solar-mini4:free", "deepseek-v4.1-flash"],
+      revisi: ["solar-mini4:free", "deepseek-v4.1-flash"],
+    };
+  }
+  // Default: MULTI-MODEL COLLABORATION GRID (Kolaborasi Lintas Model Sesuai Kekuatan Peran)
+  return {
+    arsitek: ["claude-haiku-5.5", "solar", "deepseek-v4.1-flash"],
+    developer: ["deepseek", "qwen", "kimi-code", "deepseek-v4.1-flash"],
+    reviewer: ["nemotron", "glm", "deepseek-v4.1-flash"],
+    revisi: ["qwen", "deepseek", "claude-haiku-5.5"],
+  };
+}
+
+export const ROLE_PREFER: Record<string, string[]> = getRolePrefer("duo");
 
 // Gateway memutus permintaan > ~60 detik, jadi output diminta per potongan lalu disambung
 const CHUNK_TOKENS = 4000;
@@ -700,7 +1128,7 @@ async function gatherMedia(request: string, brief: Record<string, unknown> | nul
   return { photos, videos, all: photos.flatMap((p) => p.photos as Photo[]) };
 }
 
-async function architectBrief(request: string, context: string, direction: string, planText: string, apiKey?: string) {
+async function architectBrief(request: string, context: string, direction: string, planText: string, apiKey?: string, prefer = ROLE_PREFER.arsitek) {
   const { text, model } = await callLLM({
     system:
       "Kamu Arsitek Desain senior. Tugasmu menyusun brief singkat yang tajam untuk developer, BUKAN menulis kode. Balas HANYA JSON valid.",
@@ -722,14 +1150,14 @@ Skema JSON:
 }`,
     apiKey,
     maxTokens: 2000,
-    prefer: ROLE_PREFER.arsitek,
+    prefer,
   });
   return { brief: parseJsonLoose<Record<string, unknown>>(text), raw: text, model };
 }
 
 type Review = { skor: number; masalah: { poin: string; prioritas: "tinggi" | "sedang" | "rendah" }[]; pujian?: string };
 
-async function reviewHtml(request: string, html: string, apiKey?: string) {
+async function reviewHtml(request: string, html: string, apiKey?: string, prefer = ROLE_PREFER.reviewer) {
   const { text, model } = await callLLM({
     system:
       "Kamu Reviewer QA front-end yang jujur dan spesifik. Nilai hasil kerja developer. Cari bug JS, elemen yang tidak berfungsi, layout rusak di HP, kontras buruk, konten generik/placeholder, dan bagian yang tidak sesuai permintaan. Balas HANYA JSON valid.",
@@ -744,7 +1172,7 @@ Skema JSON:
 { "skor": number (1-10), "pujian": string (1 kalimat), "masalah": [{ "poin": string (spesifik & bisa ditindaklanjuti), "prioritas": "tinggi" | "sedang" | "rendah" }] (maks 5) }`,
     apiKey,
     maxTokens: 1500,
-    prefer: ROLE_PREFER.reviewer,
+    prefer,
   });
   return { review: parseJsonLoose<Review>(text), model };
 }
@@ -795,7 +1223,7 @@ async function patchHtml(html: string, instruction: string, apiKey?: string, pre
     apiKey,
     // patch itu kecil; output pendek + batas waktu supaya model yang lambat/tak berguna tidak menahan build
     maxTokens,
-    timeoutMs: 40_000,
+    timeoutMs: 65_000,
     prefer,
   });
   const reply = parseJsonLoose<PatchReply>(text) || {};
@@ -808,6 +1236,7 @@ export async function buildWebsite({
   mode,
   projectId,
   apiKey,
+  aiMode,
   history = [],
   onProgress,
 }: {
@@ -815,9 +1244,11 @@ export async function buildWebsite({
   mode: "create" | "edit";
   projectId: string;
   apiKey?: string;
+  aiMode?: AIMode;
   history?: { role: string; content: string }[];
   onProgress?: (turn: MeetingTurn) => void;
 }): Promise<WebsiteBuildResult> {
+  const roles = getRolePrefer(aiMode);
   const started = Date.now();
   const safeProj = sanitizeSlug(projectId);
   const current = await readProjectHtml(safeProj);
@@ -853,7 +1284,7 @@ export async function buildWebsite({
     let briefText = "";
     let brief: Record<string, unknown> | null = null;
     try {
-      const a = await architectBrief(request, context, direction, planText, apiKey);
+      const a = await architectBrief(request, context, direction, planText, apiKey, roles.arsitek);
       brief = a.brief;
       if (a.brief) {
         briefText = JSON.stringify(a.brief, null, 2);
@@ -906,7 +1337,7 @@ export async function buildWebsite({
     }
     try {
       const mediaText = mediaPack.all.length || mediaPack.videos.length ? `\n\n${describeMedia(mediaPack)}` : "";
-      const p = await patchHtml(base!, `PERMINTAAN PERUBAHAN DARI USER: "${request}"\nTerapkan perubahan itu dan perbarui komentar <!-- SUMMARY: ... --> dengan ringkasan perubahan.${mediaText}`, apiKey);
+      const p = await patchHtml(base!, `PERMINTAAN PERUBAHAN DARI USER: "${request}"\nTerapkan perubahan itu dan perbarui komentar <!-- SUMMARY: ... --> dengan ringkasan perubahan.${mediaText}`, apiKey, roles.revisi);
       if (p.applied > 0) {
         html = p.html;
         model = p.model;
@@ -921,11 +1352,11 @@ export async function buildWebsite({
   }
   if (!html) {
     t1 = Date.now();
-    let w = await writeHtml(prompt, apiKey);
+    let w = await writeHtml(prompt, apiKey, roles.developer);
     if (isOffTopic(w.html, request)) {
       log({ role: "developer", agent: "Developer", model: w.model, note: "Hasil keluar topik (konten brand lain bocor), ditulis ulang", durationMs: Date.now() - t1 });
       t1 = Date.now();
-      w = await writeHtml(`${prompt}\n\nPERINGATAN: percobaan sebelumnya keluar topik. Website ini HANYA tentang: "${request}". Jangan sebut Investdesk/investasi.`, apiKey);
+      w = await writeHtml(`${prompt}\n\nPERINGATAN: percobaan sebelumnya keluar topik. Website ini HANYA tentang: "${request}". Jangan sebut Investdesk/investasi.`, apiKey, roles.developer);
     }
     html = w.html;
     model = w.model;
@@ -971,7 +1402,7 @@ export async function buildWebsite({
   let score: number | undefined;
   try {
     t1 = Date.now();
-    const { review, model: rModel } = await reviewHtml(request, html, apiKey);
+    const { review, model: rModel } = await reviewHtml(request, html, apiKey, roles.reviewer);
     if (!review || typeof review.skor !== "number") {
       log({ role: "reviewer", agent: "Reviewer QA", model: rModel, note: "Balasan reviewer tidak bisa dibaca, penilaian dilewati", durationMs: Date.now() - t1 });
     }

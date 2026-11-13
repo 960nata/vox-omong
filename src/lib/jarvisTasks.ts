@@ -7,6 +7,10 @@ import fs from "fs/promises";
 import path from "path";
 import { buildWebsite, detectCodeIntent, hasGeneratedSite } from "@/lib/codeAgent";
 import { detectSkill, runSkill } from "@/lib/skillAgent";
+import { resolveSkill } from "@/lib/skillHub";
+import { isSkillTask, runSkillEngine } from "@/lib/skillEngine";
+import { handleTeamMessage } from "@/lib/agentTeams";
+import { handleTerminalMessage } from "@/lib/terminalRuntime";
 
 export type TaskStatus = "queued" | "running" | "done" | "error";
 
@@ -86,6 +90,16 @@ export function startTask(instruction: string, projectId?: string, source = "api
 async function run(task: JarvisTask) {
   touch(task, { status: "running", step: "Menyiapkan", progress: 5 });
   try {
+    const terminal = await handleTerminalMessage({ message: task.instruction, projectId: task.projectId });
+    if (terminal) {
+      touch(task, { status: "done", progress: 100, step: "Terminal", summary: terminal.spoken || terminal.reply, previewUrl: terminal.previewUrl || null });
+      return;
+    }
+    const team = await handleTeamMessage({ message: task.instruction, projectId: task.projectId });
+    if (team) {
+      touch(task, { status: "done", progress: 100, step: "Laporan tim", summary: team.spoken || team.reply, previewUrl: team.previewUrl || null });
+      return;
+    }
     const siteExists = await hasGeneratedSite(task.projectId);
     const intent = detectCodeIntent(task.instruction, siteExists);
     const skill = intent ? null : detectSkill(task.instruction);
@@ -101,6 +115,21 @@ async function run(task: JarvisTask) {
         summary: `${out.artifact.title}. ${out.reply} Buka app VOX·AI untuk melihat dan mengunduhnya.`,
       });
       return;
+    }
+
+    // Skill komunitas (PRD, naming, riset pajak, dst.): dikerjakan mesin skill, bukan dijadikan website
+    const resolved = intent ? null : await resolveSkill(task.instruction).catch(() => null);
+    if (resolved && isSkillTask(task.instruction)) {
+      const out = await runSkillEngine({
+        message: task.instruction,
+        resolved,
+        onStep: (step) => touch(task, { step, progress: Math.min(90, task.progress + 20) }),
+      });
+      if (out) {
+        const gist = out.reply.replace(/[#*_`>|]/g, "").replace(/\s+/g, " ").slice(0, 400);
+        touch(task, { status: "done", progress: 100, step: "Selesai", summary: `Dikerjakan dengan skill ${out.skill}. ${gist}… Hasil lengkap ada di app VOX·AI.` });
+        return;
+      }
     }
 
     // Website sungguhan: tiap giliran tim AI (arsitek, aset, developer, reviewer, ...) jadi pembaruan progres

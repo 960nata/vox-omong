@@ -3,6 +3,7 @@ import path from "path";
 import { callLLM, parseJsonLoose } from "./codeAgent";
 import { PROJECTS_BASE } from "./projects";
 import { loadSkill, skillSections } from "./skillLoader";
+import { newGuardedContext, saveShot } from "./browser";
 
 /**
  * Review UI/UX untuk website di project: aturan Web Interface Guidelines (Vercel, MIT)
@@ -51,10 +52,49 @@ function numbered(html: string): string {
 }
 
 export function detectUiReview(msg: string): boolean {
-  return /\b(?:review|cek|periksa|audit|nilai|kritik)\s+(?:ui|ux|desain|design|tampilan|aksesibilitas|accessibility)(?:\s+(?:website|web|situs|halaman|project|proyek)(?:\s*ini|nya)?)?\b|\breview\s+(?:website|web|situs|halaman)(?:\s*ini|nya)?\b/i.test(msg);
+  return /\b(?:review|cek|periksa|audit|nilai|kritik)\s+(?:ui|ux|desain|design|tampilan|aksesibilitas|accessibility)(?:\s+(?:website|web|situs|halaman|project|proyek)(?:\s*ini|nya)?)?\b|\b(?:review|uji|tes|cek)\s+(?:hasil\s+)?(?:website|web|situs|halaman)(?:\s*ini|nya)?\b|\bcek\s+hasil\s+kerja\b/i.test(msg);
 }
 
-export async function reviewProjectUi(projectId: string, apiKey?: string): Promise<{ reply: string; spoken: string }> {
+async function inspectRenderedUi(projectId: string, origin: string): Promise<string> {
+  const appUrl = new URL(origin);
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(appUrl.hostname)) {
+    throw new Error("Cek browser otomatis tersedia saat aplikasi berjalan di komputer lokal.");
+  }
+  const ctx = await newGuardedContext();
+  try {
+    const page = await ctx.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (error) => { if (errors.length < 5) errors.push(error.message.slice(0, 160)); });
+    await page.goto(`${origin}/api/preview?projectId=${encodeURIComponent(projectId)}`, { waitUntil: "domcontentloaded", timeout: 20_000 });
+    await page.waitForLoadState("load", { timeout: 8000 }).catch(() => undefined);
+    const inspect = async (width: number, height: number) => {
+      await page.setViewportSize({ width, height });
+      return page.evaluate(() => ({
+        title: document.title,
+        horizontalOverflow: Math.max(0, document.documentElement.scrollWidth - innerWidth),
+        brokenImages: Array.from(document.images).filter((img) => img.complete && img.naturalWidth === 0).length,
+        missingImageAlt: Array.from(document.images).filter((img) => !img.hasAttribute("alt")).length,
+        headings: document.querySelectorAll("h1").length,
+      }));
+    };
+    const desktop = await inspect(1280, 800);
+    const shot = await saveShot(page).catch(() => undefined);
+    const mobile = await inspect(390, 844);
+    const issues = [
+      ...(desktop.horizontalOverflow ? [`Desktop melebar ${desktop.horizontalOverflow}px`] : []),
+      ...(mobile.horizontalOverflow ? [`Mobile melebar ${mobile.horizontalOverflow}px`] : []),
+      ...(mobile.brokenImages ? [`${mobile.brokenImages} gambar gagal dimuat`] : []),
+      ...(mobile.missingImageAlt ? [`${mobile.missingImageAlt} gambar tanpa teks alternatif`] : []),
+      ...(mobile.headings === 0 ? ["Tidak ada judul utama (h1)"] : []),
+      ...errors.map((error) => `Error JavaScript: ${error}`),
+    ];
+    return `Cek browser nyata (desktop 1280px, mobile 390px): ${issues.length ? issues.join("; ") : "tidak ditemukan masalah terukur"}.${shot ? `\n\n![Hasil render desktop](${shot})` : ""}`;
+  } finally {
+    await ctx.close().catch(() => undefined);
+  }
+}
+
+export async function reviewProjectUi(projectId: string, apiKey?: string, origin?: string): Promise<{ reply: string; spoken: string }> {
   if (!/^[a-z0-9][a-z0-9-]{0,60}$/.test(projectId)) throw new Error("Project tidak valid.");
   let html = "";
   try {
@@ -62,6 +102,8 @@ export async function reviewProjectUi(projectId: string, apiKey?: string): Promi
   } catch {
     return { reply: `Project ${projectId} belum punya website untuk direview. Bikin dulu, misalnya "buatin website kafe".`, spoken: "Belum ada website untuk direview." };
   }
+  const browserReport = origin ? await inspectRenderedUi(projectId, origin).catch((error) => `Cek browser belum bisa dijalankan: ${(error as Error).message}`) : "";
+  const browserAvailable = browserReport.startsWith("Cek browser nyata");
   const rules = loadSkill("web-design-guidelines", "guidelines.md").replace(/^Review these files[^\n]*\n/m, "");
   const aesthetic = skillSections("frontend-ui-engineering", ["Avoid the AI Aesthetic"]);
   const r = await callLLM({
@@ -82,10 +124,15 @@ ${numbered(html)}`,
     apiKey,
     maxTokens: 1800,
     timeoutMs: 60_000,
+  }).catch((error) => {
+    if (browserAvailable) return null;
+    throw error;
   });
+  if (!r) return { reply: browserReport, spoken: "Cek browser selesai. Detailnya di chat." };
   const j = parseJsonLoose<{ findings?: { line?: number; quote?: string; problem?: string; fix?: string }[]; good?: string[] }>(r.text);
   if (!j || !Array.isArray(j.findings)) {
     console.warn("uiReview: balasan model bukan JSON yang valid:", r.model, r.text.slice(0, 300));
+    if (browserAvailable) return { reply: browserReport, spoken: "Cek browser selesai. Review kode belum terbaca." };
     throw new Error("balasan model tidak terbaca, coba lagi sebentar");
   }
   // Verifikasi: kutipan harus benar-benar ada di baris yang disebut (±2 baris). Yang tidak cocok dibuang.
@@ -103,7 +150,7 @@ ${numbered(html)}`,
     ? verified.map((f) => `• baris ${f.line}: ${String(f.problem).trim()} → ${String(f.fix || "").trim()}`).join("\n")
     : "Tidak ada pelanggaran yang bisa dipastikan dari kodenya.";
   return {
-    reply: `Review UI project ${projectId} (Web Interface Guidelines dari Vercel):\n\n${body}${good.length ? `\n\nYang sudah bagus:\n${good.map((g) => `• ${g}`).join("\n")}` : ""}${dropped > 0 ? `\n\n(${dropped} temuan lain kubuang karena tidak cocok dengan kode aslinya.)` : ""}`,
+    reply: `Review UI project ${projectId} (Web Interface Guidelines dari Vercel):\n\n${browserReport ? `${browserReport}\n\n` : ""}${body}${good.length ? `\n\nYang sudah bagus:\n${good.map((g) => `• ${g}`).join("\n")}` : ""}${dropped > 0 ? `\n\n(${dropped} temuan lain kubuang karena tidak cocok dengan kode aslinya.)` : ""}`,
     spoken: verified.length ? `Ada ${verified.length} hal yang bisa diperbaiki. Detailnya di chat.` : "Gak ada masalah yang pasti. Detailnya di chat.",
   };
 }

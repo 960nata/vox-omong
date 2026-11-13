@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
+import { invalidateCodeIndex } from "@/lib/localCodeSearch";
 
 // Isolated User Projects Sandbox Directory
 // User workspaces are stored STRICTLY inside .data/user_projects/
@@ -20,7 +21,8 @@ function getSafeProjectPath(projectId: string, relativeSubpath: string = "") {
   const projectDir = path.normalize(path.join(PROJECTS_BASE, safeId));
   const target = path.normalize(path.join(projectDir, relativeSubpath));
 
-  if (!target.startsWith(projectDir)) {
+  const relative = path.relative(projectDir, target);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     throw new Error("Access outside user project workspace is strictly prohibited");
   }
   return { projectDir, target, safeId };
@@ -128,6 +130,45 @@ export async function GET(req: Request) {
     const activeProject =
       projects.find((p) => p.id === requestedProject) || projects[0];
 
+    // Jika parameter filePath diberikan, baca isi file tersebut
+    const filePath = searchParams.get("filePath");
+    if (filePath) {
+      try {
+        const { target, safeId } = getSafeProjectPath(activeProject.id, filePath);
+        const stat = await fs.stat(target);
+        if (stat.isDirectory()) {
+          return NextResponse.json({ success: false, error: "Path adalah folder, bukan file" }, { status: 400 });
+        }
+        const ext = path.extname(filePath).toLowerCase();
+        const isBinary = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".zip", ".tar", ".gz", ".mp3", ".mp4", ".woff", ".woff2", ".ttf"].includes(ext);
+        if (!isBinary && stat.size < 2_000_000) {
+          const content = await fs.readFile(target, "utf-8");
+          return NextResponse.json({
+            success: true,
+            projectId: safeId,
+            filePath,
+            name: path.basename(filePath),
+            size: stat.size,
+            updatedAt: stat.mtime.toISOString(),
+            content,
+            isBinary: false,
+          });
+        } else {
+          return NextResponse.json({
+            success: true,
+            projectId: safeId,
+            filePath,
+            name: path.basename(filePath),
+            size: stat.size,
+            updatedAt: stat.mtime.toISOString(),
+            isBinary: true,
+          });
+        }
+      } catch (err: any) {
+        return NextResponse.json({ success: false, error: `Gagal membaca file: ${err.message}` }, { status: 404 });
+      }
+    }
+
     const { projectDir } = getSafeProjectPath(activeProject.id);
 
     // Make sure projectDir exists
@@ -136,12 +177,72 @@ export async function GET(req: Request) {
     // Read project file tree
     const tree = await scanProjectDir(projectDir, projectDir);
 
+    // Also flatten files into a flat array for 1-click file pickers
+    const flatFiles: { path: string; size: number }[] = [];
+    function extractFiles(nodes: FileNode[]) {
+      for (const node of nodes) {
+        if (!node.isDirectory) {
+          flatFiles.push({ path: node.relativePath, size: node.size || 0 });
+        } else if (node.children) {
+          extractFiles(node.children);
+        }
+      }
+    }
+    extractFiles(tree);
+
+    // Jika parameter readFolder=true, rangkum seluruh folder beserta cuplikan file utama
+    const readFolder = searchParams.get("readFolder") === "true";
+    if (readFolder) {
+      let indexHtmlSnippet = "";
+      let packageJsonSnippet = "";
+      let readmeSnippet = "";
+
+      try {
+        const pJson = await fs.readFile(path.join(projectDir, "package.json"), "utf-8");
+        packageJsonSnippet = pJson.slice(0, 1000);
+      } catch (_) {}
+
+      try {
+        const readme = await fs.readFile(path.join(projectDir, "README.md"), "utf-8");
+        readmeSnippet = readme.slice(0, 1000);
+      } catch (_) {}
+
+      try {
+        const html = await fs.readFile(path.join(projectDir, "index.html"), "utf-8");
+        indexHtmlSnippet = html.slice(0, 4000);
+      } catch (_) {}
+
+      let totalSize = 0;
+      flatFiles.forEach((f) => {
+        totalSize += f.size;
+      });
+
+      const summary =
+        `Folder: ${activeProject.id} (${flatFiles.length} file, ${totalSize} bytes)\n` +
+        `Daftar File:\n${flatFiles.map((f) => `- ${f.path} (${f.size} B)`).join("\n")}\n\n` +
+        (packageJsonSnippet ? `[package.json]\n${packageJsonSnippet}\n\n` : "") +
+        (readmeSnippet ? `[README.md]\n${readmeSnippet}\n\n` : "") +
+        (indexHtmlSnippet ? `[index.html preview]\n${indexHtmlSnippet}\n` : "");
+
+      return NextResponse.json({
+        success: true,
+        projectId: activeProject.id,
+        projectName: activeProject.name,
+        itemCount: flatFiles.length,
+        size: totalSize,
+        files: flatFiles,
+        tree,
+        textSnippet: summary,
+      });
+    }
+
     return NextResponse.json({
       success: true,
       projects,
       activeProject: activeProject.id,
       projectName: activeProject.name,
       tree,
+      files: flatFiles,
     });
   } catch (error: any) {
     console.error("GET /api/fs error:", error);
@@ -211,20 +312,21 @@ export async function POST(req: Request) {
     }
 
     // --- D. CREATE FILE INSIDE USER PROJECT ---
-    if (action === "create_file") {
+    if (action === "create_file" || action === "save_file" || action === "write_file") {
       if (!filePath || typeof filePath !== "string") {
         return NextResponse.json({ success: false, error: "Nama file diperlukan" }, { status: 400 });
       }
 
-      const { target } = getSafeProjectPath(projectId, filePath.trim());
+      const { target, safeId, projectDir } = getSafeProjectPath(projectId, filePath.trim());
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.writeFile(target, content, "utf-8");
+      invalidateCodeIndex(projectDir);
 
       return NextResponse.json({
         success: true,
-        message: `File "${filePath.trim()}" berhasil dibuat di dalam project ${projectId}!`,
+        message: `File "${filePath.trim()}" berhasil disimpan di dalam project ${safeId}!`,
         filePath: filePath.trim(),
-        projectId,
+        projectId: safeId,
       });
     }
 
@@ -246,11 +348,30 @@ export async function POST(req: Request) {
       } else {
         await fs.unlink(target);
       }
+      invalidateCodeIndex(projectDir);
 
       return NextResponse.json({
         success: true,
         message: `Berhasil menghapus ${relPath}`,
       });
+    }
+
+    // --- F. OPEN PROJECT FOLDER IN OS FILE MANAGER (FINDER / EXPLORER) ---
+    if (action === "open_finder" || action === "open_in_os" || action === "open_folder") {
+      const relPath = folderPath || filePath || "";
+      const { target } = getSafeProjectPath(projectId, relPath);
+      try {
+        const { exec } = await import("child_process");
+        const cmd = process.platform === "darwin" ? `open "${target}"` : process.platform === "win32" ? `start "" "${target}"` : `xdg-open "${target}"`;
+        exec(cmd);
+        return NextResponse.json({
+          success: true,
+          message: `Folder project berhasil dibuka di Finder Mac!`,
+          target,
+        });
+      } catch (err: any) {
+        return NextResponse.json({ success: false, error: `Gagal membuka folder di sistem: ${err.message}` }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ success: false, error: "Aksi tidak dikenali" }, { status: 400 });

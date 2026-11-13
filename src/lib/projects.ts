@@ -175,3 +175,106 @@ export function parseProjectCommand(text: string): ProjectCommand {
   }
   return null;
 }
+
+// ---------------------------------------------------------------- file & folder management
+
+export function getSafeProjectPath(projectId: string, relativeSubpath: string = "") {
+  const safeId = slugify(projectId) || "default-workspace";
+  const projectDir = path.normalize(path.join(PROJECTS_BASE, safeId));
+  const target = path.normalize(path.join(projectDir, relativeSubpath));
+  const relative = path.relative(projectDir, target);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error("Akses di luar sandbox project dilarang");
+  }
+  return { projectDir, target, safeId };
+}
+
+export async function readProjectFile(projectId: string, relPath: string): Promise<{ content: string; size: number; lines: number } | null> {
+  try {
+    const { target } = getSafeProjectPath(projectId, relPath);
+    const stat = await fs.stat(target);
+    if (stat.isDirectory()) return null;
+    const content = await fs.readFile(target, "utf-8");
+    return { content, size: stat.size, lines: content.split("\n").length };
+  } catch {
+    return null;
+  }
+}
+
+export async function writeProjectFile(projectId: string, relPath: string, content: string): Promise<boolean> {
+  try {
+    const { target } = getSafeProjectPath(projectId, relPath);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, content, "utf-8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function listProjectFiles(projectId: string): Promise<{ path: string; isDir: boolean; size: number }[]> {
+  const { projectDir } = getSafeProjectPath(projectId);
+  const out: { path: string; isDir: boolean; size: number }[] = [];
+
+  async function walk(dir: string, base: string, depth = 0) {
+    if (depth > 5) return;
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      for (const e of entries) {
+        if (e.name.startsWith(".")) continue;
+        const full = path.join(dir, e.name);
+        const rel = path.relative(base, full);
+        if (e.isDirectory()) {
+          out.push({ path: rel, isDir: true, size: 0 });
+          if (!["node_modules", ".git", "dist", "build", ".next"].includes(e.name)) {
+            await walk(full, base, depth + 1);
+          }
+        } else {
+          const st = await fs.stat(full).catch(() => null);
+          out.push({ path: rel, isDir: false, size: st?.size || 0 });
+        }
+      }
+    } catch {}
+  }
+
+  await walk(projectDir, projectDir);
+  return out;
+}
+
+export async function getProjectFilesSummary(projectId: string): Promise<string> {
+  try {
+    const files = await listProjectFiles(projectId);
+    if (!files.length) return "Belum ada file di project ini.";
+    const dirs = files.filter((f) => f.isDir).map((f) => `📁 ${f.path}/`);
+    const fls = files.filter((f) => !f.isDir).map((f) => {
+      const sz = f.size > 1024 ? `${(f.size / 1024).toFixed(1)}KB` : `${f.size}B`;
+      return `📄 ${f.path} (${sz})`;
+    });
+    return [...dirs, ...fls].slice(0, 40).join("\n");
+  } catch {
+    return "Belum ada file di project ini.";
+  }
+}
+
+export async function getProjectChatContext(projectId: string, question: string): Promise<string> {
+  const files = (await listProjectFiles(projectId)).filter((item) => !item.isDir && item.size < 200_000);
+  if (!files.length) return "";
+  const names = files.slice(0, 40).map((item) => item.path).join(", ");
+  const words = question.toLowerCase().match(/[a-z0-9_.-]{3,}/g) || [];
+  const ranked = files
+    .filter((item) => /\.(tsx?|jsx?|json|md|html|css|py|go|txt)$/i.test(item.path))
+    .map((item) => ({ item, score: words.reduce((sum, word) => sum + (item.path.toLowerCase().includes(word) ? 1 : 0), 0) }))
+    .sort((a, b) => b.score - a.score);
+  const selected = ranked.filter((entry) => entry.score > 0).slice(0, 2);
+  if (!selected.length) {
+    for (const name of ["README.md", "package.json"]) {
+      const found = ranked.find((entry) => entry.item.path === name);
+      if (found) selected.push(found);
+    }
+  }
+  const snippets = await Promise.all(selected.map(async ({ item }) => {
+    const file = await readProjectFile(projectId, item.path);
+    return file ? `\n${item.path}:\n${file.content.slice(0, 1400)}` : "";
+  }));
+  return `Project aktif: ${projectId}. File: ${names.slice(0, 1600)}${snippets.join("")}`;
+}

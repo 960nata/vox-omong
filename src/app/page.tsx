@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import { Conversation, Message, VoiceSettings } from "@/lib/types";
 import { VoiceVisualizer } from "@/components/VoiceVisualizer";
 import { AudioControls } from "@/components/AudioControls";
-import { ConversationSidebar } from "@/components/ConversationSidebar";
+import { TeamSidebar, type TeamChatSelection } from "@/components/TeamSidebar";
+import { TeamChatPanel } from "@/components/TeamChatPanel";
 import { MessageItem } from "@/components/MessageItem";
 import { SettingsModal, NEURAL_VOICES } from "@/components/SettingsModal";
 import { RightWorkspacePanel, WorkspaceTab } from "@/components/RightWorkspacePanel";
@@ -15,6 +17,8 @@ import { WebsiteStudio } from "@/components/WebsiteStudio";
 import { AcousticBackground } from "@/components/AcousticBackground";
 import { ChatBackground } from "@/components/ChatBackground";
 import { playJarvisSound } from "@/lib/jarvisSounds";
+import { detectBrowserTask } from "@/lib/browserIntent";
+import { syncSavedLocalProject, writeAgentChangesToLocalFolder } from "@/lib/browserLocalProject";
 import {
   Menu,
   Mic,
@@ -27,11 +31,67 @@ import {
   PanelRight,
   Sun,
   Moon,
+  ChevronDown,
+  Check,
+  Sparkles,
+  Brain,
+  Feather,
+  Code2,
+  Phone,
+  Shield,
+  Cpu,
+  Sliders,
 } from "lucide-react";
 import { useTheme } from "@/lib/theme";
+import type { AIMode } from "@/lib/types";
+
+const AI_MODES: Array<{
+  id: AIMode;
+  name: string;
+  Icon: React.ElementType;
+}> = [
+  // Cepat & Daily
+  { id: "flash", name: "DeepSeek Flash", Icon: Feather },
+  { id: "user-private", name: "Gateway Pribadi (aigw)", Icon: Shield },
+  { id: "coding-china-auto", name: "Coding China (Auto)", Icon: Zap },
+  { id: "coding-us-auto", name: "Coding US (Auto)", Icon: Zap },
+  { id: "duo", name: "Duo Engine", Icon: Zap },
+
+  // Coding & Reasoning Cepat
+  { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", Icon: Cpu },
+  { id: "kimi-k2.7-code", name: "Kimi K2.7 Code", Icon: Code2 },
+  { id: "qwen-plus", name: "Qwen 3.7 Plus", Icon: Zap },
+  { id: "glm-5.3-flash", name: "GLM 5.3 Flash", Icon: Feather },
+  { id: "minimax-m3", name: "MiniMax M3", Icon: Zap },
+  { id: "hy3", name: "Hy3 Hunyuan", Icon: Cpu },
+
+  // Flagship Sultan
+  { id: "sonnet-5.5", name: "Claude Sonnet 5.5", Icon: Code2 },
+  { id: "opus-5.5", name: "Claude Opus 5.5", Icon: Brain },
+  { id: "claude-fable-5", name: "Claude Fable 5", Icon: Brain },
+  { id: "gpt-6-astra", name: "GPT-6 Astra", Icon: Brain },
+  { id: "gpt-6-sol", name: "GPT-6 Sol", Icon: Brain },
+  { id: "grok-4.7", name: "Grok 4.7", Icon: Brain },
+  { id: "qwen-max", name: "Qwen 3.8 Max", Icon: Cpu },
+
+  // Vision & 100% Gratis
+  { id: "haiku-5.5", name: "Claude Haiku 5.5", Icon: Sparkles },
+  { id: "kai-baik", name: "Kai Grant (Free)", Icon: Sparkles },
+  { id: "nemotron-3.5-super-vl:free", name: "Nemotron Super VL (Free)", Icon: Feather },
+  { id: "nemotron-3-nano-omni:free", name: "Nemotron Nano Omni (Free)", Icon: Feather },
+  { id: "north-mini-code:free", name: "North Mini Code (Free)", Icon: Code2 },
+  { id: "free-nemotron", name: "Nemotron 3.5 (Free)", Icon: Feather },
+  { id: "free-solar", name: "Solar Mini 4 (Free)", Icon: Feather },
+  { id: "gemma-4-31b:free", name: "Gemma 4 31B (Free)", Icon: Feather },
+  { id: "lfm-3-1.7b:free", name: "LFM 3 1.7B (Free)", Icon: Zap },
+  { id: "hybrid", name: "Hybrid Engine", Icon: Sparkles },
+];
 
 const DEFAULT_SETTINGS: VoiceSettings = {
   apiKey: "", // kosong = server memakai AI_GATEWAY_KEY dari .env.local
+  aiMode: "flash", // Mode default: DeepSeek Flash (Super Irit & Anti Boncos)
+  agentMode: "interactive",
+  agentPermission: "manual",
   language: "id-ID",
   ttsProvider: "neural",
   neuralVoice: "id-ID-GadisNeural",
@@ -42,6 +102,7 @@ const DEFAULT_SETTINGS: VoiceSettings = {
   systemPrompt: "",
   jarvisMode: true,
   silenceTimeoutMs: 1200,
+  mcpEnabled: [],
 };
 
 export default function VoiceAiStudio() {
@@ -67,11 +128,126 @@ export default function VoiceAiStudio() {
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("preview");
   const [previewUrl, setPreviewUrl] = useState("/api/preview?projectId=default-workspace");
   const [activeProjectId, setActiveProjectId] = useState("default-workspace");
+  const [pendingLocalWrite, setPendingLocalWrite] = useState<{ projectId: string; paths: string[] } | null>(null);
+  const [localWriteStatus, setLocalWriteStatus] = useState("");
+  const [projectRestored, setProjectRestored] = useState(false);
+
+  // Studio PIN Protection (untuk akses remote / HP)
+  const [pinRequired, setPinRequired] = useState(false);
+  const [pinAuthorized, setPinAuthorized] = useState(true);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState("");
+  const [pinChecking, setPinChecking] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/pin")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.required) {
+          setPinRequired(true);
+          setPinAuthorized(data.authorized === true);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleVerifyPin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!pinInput) return;
+    setPinChecking(true);
+    setPinError("");
+    try {
+      const res = await fetch("/api/auth/pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: pinInput }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setPinAuthorized(true);
+      } else {
+        setPinError(data.error || "PIN tidak sesuai");
+      }
+    } catch {
+      setPinError("Gagal menghubungi server");
+    } finally {
+      setPinChecking(false);
+    }
+  };
+
+  useEffect(() => {
+    const saved = localStorage.getItem("vox_active_project");
+    if (saved && /^[a-z0-9_-]+$/.test(saved)) {
+      setActiveProjectId(saved);
+      if (saved.startsWith("session-")) {
+        fetch("/api/teams", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "get_session", sessionId: saved }),
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.success && data.session?.conversationId) {
+              setActiveConvId(data.session.conversationId);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+    setProjectRestored(true);
+  }, []);
+  useEffect(() => {
+    if (projectRestored) localStorage.setItem("vox_active_project", activeProjectId);
+    if (typeof window !== "undefined") {
+      (window as any).__activeVoxProject = activeProjectId;
+    }
+  }, [activeProjectId, projectRestored]);
+
+  // Deteksi otomatis: Jika project masih kosongan, buka tab Explorer. Jika ada website, buka Preview otomatis!
+  useEffect(() => {
+    fetch(`/api/fs?projectId=${encodeURIComponent(activeProjectId)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.files)) {
+          const hasWebsite = data.files.some((f: any) => f.path === "index.html" || f.path.endsWith("/index.html"));
+          if (hasWebsite) {
+            setWorkspaceTab("preview");
+          } else {
+            setWorkspaceTab("explorer");
+          }
+        }
+      })
+      .catch(() => {});
+  }, [activeProjectId]);
+  const [selectedTeamChat, setSelectedTeamChat] = useState<(TeamChatSelection & { projectId: string }) | null>(null);
+  const [pendingTeamFolder, setPendingTeamFolder] = useState<{ projectId: string; teamId: string; name: string; itemCount: number } | null>(null);
+  const activeTeamChat = selectedTeamChat?.projectId === activeProjectId ? selectedTeamChat : null;
   const activeProjectIdRef = useRef(activeProjectId);
   useEffect(() => {
     activeProjectIdRef.current = activeProjectId;
   }, [activeProjectId]);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [isModeOpen, setIsModeOpen] = useState(false);
+  const modeMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modeMenuRef.current && !modeMenuRef.current.contains(e.target as Node)) {
+        setIsModeOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsModeOpen(false);
+    };
+    if (isModeOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isModeOpen]);
 
   // Window viewport width & adaptive layout management
   // Mulai dari nilai tetap agar render server & client sama (hindari hydration mismatch)
@@ -107,7 +283,12 @@ export default function VoiceAiStudio() {
   // Refs for Speech Recognition & Audio
   const recognitionRef = useRef<any>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const [speechError, setSpeechError] = useState<string | null>(null);
+  const [isTeamCalling, setIsTeamCalling] = useState(false);
+  const teamCallRef = useRef<{ teamId: string; memberId: string; voice?: string } | null>(null);
+  const teamVoiceAbortRef = useRef<AbortController | null>(null);
+  const audioDoneRef = useRef<(() => void) | null>(null);
   const activeConvRef = useRef<string | null>(activeConvId);
   const settingsRef = useRef<VoiceSettings>(settings);
 
@@ -148,9 +329,18 @@ export default function VoiceAiStudio() {
       const saved = localStorage.getItem("vox_ai_settings");
       if (saved) {
         const parsed = JSON.parse(saved);
+        // Jika apiKey yang tersimpan di browser adalah format lama/dummy (misal "aigw_..." atau bukan sk_live_/AIzaSy),
+        // bersihkan otomatis agar langsung memakai kuota server 775 Juta Kredit (.env.local) tanpa error 401.
+        const cleanApiKey = parsed.apiKey && (parsed.apiKey.startsWith("sk_live_") || parsed.apiKey.startsWith("AIzaSy"))
+          ? parsed.apiKey
+          : "";
+        if (parsed.apiKey && !cleanApiKey) {
+          localStorage.setItem("vox_ai_settings", JSON.stringify({ ...parsed, apiKey: "" }));
+        }
         setSettings({
           ...DEFAULT_SETTINGS,
           ...parsed,
+          apiKey: cleanApiKey,
           // prompt tambahan berlaku per sesi: tidak pernah dipulihkan dari sesi sebelumnya
           systemPrompt: "",
           ttsProvider: parsed.ttsProvider || "neural",
@@ -169,6 +359,7 @@ export default function VoiceAiStudio() {
 
   // Save settings helper
   const handleSaveSettings = (newSettings: VoiceSettings) => {
+    stopSpeaking();
     setSettings(newSettings);
     try {
       // prompt tambahan sesi tidak disimpan permanen
@@ -234,20 +425,20 @@ export default function VoiceAiStudio() {
 
   // Auto-scroll chat to bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const chat = chatScrollRef.current;
+    chat?.scrollTo({ top: chat.scrollHeight, behavior: "smooth" });
   }, [messages, liveTranscript]);
 
 
-  // ---- Suara: diputar kalimat per kalimat (streaming + prefetch) supaya terasa seperti ngobrol
+  // Satu stream per balasan menjaga intonasi dan karakter suara sepanjang ucapan.
   const fillerAudioRef = useRef<HTMLAudioElement | null>(null);
-  const prefetchedRef = useRef<HTMLAudioElement[]>([]);
 
-  const ttsUrl = (text: string) =>
+  const ttsUrl = (text: string, voiceSettings = settingsRef.current) =>
     `/api/tts?${new URLSearchParams({
       text,
-      voice: settingsRef.current.neuralVoice || "id-ID-GadisNeural",
-      rate: String(settingsRef.current.rate || 1),
-      pitch: String(settingsRef.current.pitch || 1),
+      voice: voiceSettings.neuralVoice || (voiceSettings.language === "en-US" ? "en-US-JennyNeural" : "id-ID-GadisNeural"),
+      rate: String(voiceSettings.rate || 1),
+      pitch: String(voiceSettings.pitch || 1),
     })}`;
 
   const FILLERS_QUICK = ["Oke, bentar ya.", "Hmm, oke.", "Siap, aku cek dulu.", "Oke, sebentar."];
@@ -287,6 +478,8 @@ export default function VoiceAiStudio() {
   // Stop currently playing audio or speech synthesis
   const stopSpeaking = () => {
     speechSessionIdRef.current++;
+    audioDoneRef.current?.();
+    audioDoneRef.current = null;
 
     if (ttsAbortControllerRef.current) {
       ttsAbortControllerRef.current.abort();
@@ -294,17 +487,13 @@ export default function VoiceAiStudio() {
     }
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
+      currentAudioRef.current.removeAttribute("src");
       currentAudioRef.current = null;
     }
     if (fillerAudioRef.current) {
       fillerAudioRef.current.pause();
       fillerAudioRef.current = null;
     }
-    prefetchedRef.current.forEach((a) => {
-      a.pause();
-      a.removeAttribute("src");
-    });
-    prefetchedRef.current = [];
 
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
@@ -315,30 +504,23 @@ export default function VoiceAiStudio() {
   };
 
   const resumeHandsFree = () => {
-    if (jarvisModeRef.current && !isProcessingRef.current) {
+    const session = speechSessionIdRef.current;
+    if ((teamCallRef.current || jarvisModeRef.current) && !isProcessingRef.current) {
       setTimeout(() => {
+        if (speechSessionIdRef.current !== session || isProcessingRef.current) return;
         playJarvisSound("listen");
         startListening();
-      }, 250);
+      }, teamCallRef.current ? 0 : 250);
     }
   };
 
-  /** Pecah jawaban jadi kalimat; kalimat pendek digabung supaya intonasi natural. */
-  const splitSentences = (text: string) => {
-    const raw = text.split(/(?<=[.!?…])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
-    const out: string[] = [];
-    for (const r of raw) {
-      if (out.length && (out[out.length - 1].length < 40 || r.length < 12)) out[out.length - 1] += " " + r;
-      else out.push(r);
-    }
-    // batasi supaya jawaban panjang tidak dibacakan semuanya
-    let total = 0;
-    return out.filter((x) => (total += x.length) <= 650 || x === out[0]);
-  };
-
-  const speakText = async (text: string, opts: { afterFiller?: boolean } = {}) => {
+  const speakText = async (text: string, opts: { afterFiller?: boolean; voice?: string; noResume?: boolean } = {}) => {
+    const voiceSettings: VoiceSettings = { ...settingsRef.current, ...(opts.voice ? { ttsProvider: "neural", neuralVoice: opts.voice } : {}) };
+    const waitingSession = speechSessionIdRef.current;
     if (opts.afterFiller) await waitForFiller();
+    if (speechSessionIdRef.current !== waitingSession) return;
     stopSpeaking();
+    setSpeechError(null);
     if (!text || !text.trim()) return;
 
     const cleanSpeech = text
@@ -351,65 +533,51 @@ export default function VoiceAiStudio() {
 
     const currentSessionId = ++speechSessionIdRef.current;
 
-    // 1. Edge Neural TTS: antrean kalimat, kalimat berikutnya di-prefetch selagi kalimat sekarang diputar
-    if (settingsRef.current.ttsProvider === "neural") {
-      const sentences = splitSentences(cleanSpeech);
-      const make = (k: number) => {
-        const a = new Audio(ttsUrl(sentences[k]));
-        a.preload = "auto";
-        prefetchedRef.current.push(a);
-        return a;
-      };
-      const audios: (HTMLAudioElement | undefined)[] = [];
-      audios[0] = make(0);
-      if (sentences.length > 1) audios[1] = make(1);
-
+    // Gagal Neural tetap memakai pilihan user: tampilkan status, jangan pindah karakter suara.
+    if (voiceSettings.ttsProvider === "neural") {
+      const audio = new Audio(ttsUrl(cleanSpeech.slice(0, 650), voiceSettings));
+      currentAudioRef.current = audio;
       setIsSpeaking(true);
       isSpeakingRef.current = true;
-
-      const finish = () => {
-        if (speechSessionIdRef.current !== currentSessionId) return;
-        setIsSpeaking(false);
-        isSpeakingRef.current = false;
-        currentAudioRef.current = null;
-        prefetchedRef.current = [];
-        resumeHandsFree();
-      };
-
-      const playAt = (k: number): Promise<boolean> =>
-        new Promise((resolve) => {
-          if (speechSessionIdRef.current !== currentSessionId) return resolve(false);
-          const a = audios[k] || (audios[k] = make(k));
-          if (k + 1 < sentences.length && !audios[k + 1]) audios[k + 1] = make(k + 1);
-          currentAudioRef.current = a;
-          a.onended = () => resolve(true);
-          a.onerror = () => resolve(k > 0); // kalimat pertama gagal → pakai suara browser
-          a.play().catch(() => resolve(k > 0));
-        });
-
-      for (let k = 0; k < sentences.length; k++) {
-        const ok = await playAt(k);
-        if (speechSessionIdRef.current !== currentSessionId) return;
-        if (!ok && k === 0) break; // jatuh ke fallback di bawah
-        if (k === sentences.length - 1) return finish();
-      }
+      const ok = await new Promise<boolean>((resolve) => {
+        audioDoneRef.current = () => resolve(false);
+        audio.onended = () => resolve(true);
+        audio.onerror = () => resolve(false);
+        audio.play().catch(() => resolve(false));
+      });
+      audio.onended = null;
+      audio.onerror = null;
       if (speechSessionIdRef.current !== currentSessionId) return;
+      audioDoneRef.current = null;
+      currentAudioRef.current = null;
+      audio.removeAttribute("src");
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
+      if (!ok) setSpeechError("Suara pilihanmu gagal diputar. Coba putar ulang pesan.");
+      if (!opts.noResume) resumeHandsFree();
+      return;
     }
 
-    // 2. Fallback: SpeechSynthesis bawaan browser
+    // Suara browser hanya dipakai ketika dipilih di Pengaturan.
     if (typeof window === "undefined" || !window.speechSynthesis) {
       setIsSpeaking(false);
       isSpeakingRef.current = false;
       return;
     }
     const utterance = new SpeechSynthesisUtterance(cleanSpeech.slice(0, 650));
-    utterance.lang = settingsRef.current.language;
-    utterance.rate = settingsRef.current.rate || 1.0;
-    utterance.pitch = settingsRef.current.pitch || 1.0;
-    if (settingsRef.current.voiceURI) {
-      const matched = availableVoices.find((v) => v.voiceURI === settingsRef.current.voiceURI);
-      if (matched) utterance.voice = matched;
+    utterance.lang = voiceSettings.language;
+    utterance.rate = voiceSettings.rate || 1.0;
+    utterance.pitch = voiceSettings.pitch || 1.0;
+    const voices = window.speechSynthesis.getVoices();
+    const matched = voiceSettings.voiceURI
+      ? voices.find((v) => v.voiceURI === voiceSettings.voiceURI)
+      : voices.filter((v) => v.lang === voiceSettings.language).sort((a, b) => a.voiceURI.localeCompare(b.voiceURI))[0];
+    if (!matched) {
+      setSpeechError("Suara browser pilihanmu belum tersedia. Pilih suara di Pengaturan.");
+      if (!opts.noResume) resumeHandsFree();
+      return;
     }
+    utterance.voice = matched;
     utterance.onstart = () => {
       if (speechSessionIdRef.current === currentSessionId) {
         setIsSpeaking(true);
@@ -420,7 +588,7 @@ export default function VoiceAiStudio() {
       if (speechSessionIdRef.current === currentSessionId) {
         setIsSpeaking(false);
         isSpeakingRef.current = false;
-        resumeHandsFree();
+        if (!opts.noResume) resumeHandsFree();
       }
     };
     utterance.onerror = () => {
@@ -433,8 +601,94 @@ export default function VoiceAiStudio() {
   };
 
   // Send message to backend
-  const handleSendMessage = async (text: string, imageUri?: string, dataUri?: string, fromVoice = false) => {
-    if (!text.trim() || isProcessing) return;
+  const handleSendMessage = async (text: string, imageUri?: string, dataUri?: string, fromVoice = false, attachedItem?: any) => {
+    if (!text.trim() || isProcessingRef.current) return;
+    if (fromVoice && teamCallRef.current) {
+      const target = teamCallRef.current;
+      const controller = new AbortController();
+      teamVoiceAbortRef.current = controller;
+      const current = () => !controller.signal.aborted && teamCallRef.current === target;
+      setIsProcessing(true);
+      isProcessingRef.current = true;
+      setLiveTranscript(text);
+      let queue = Promise.resolve();
+      let pending = "";
+      let received = false;
+      let complete = false;
+      let spokenChars = 0;
+      const play = (chunk: string) => {
+        const phrase = chunk.trim().slice(0, 650 - spokenChars);
+        if (!phrase) return;
+        spokenChars += phrase.length;
+        queue = queue.then(async () => {
+          if (current()) await speakText(phrase, { voice: target.voice, noResume: true });
+        });
+      };
+      try {
+        const response = await fetch("/api/teams/voice", {
+          method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
+          body: JSON.stringify({ teamId: target.teamId, memberId: target.memberId, message: text, apiKey: settingsRef.current.apiKey || undefined }),
+        });
+        if (!response.ok || !response.body) throw new Error("Panggilan belum bisa terhubung ke AI.");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        try {
+          while (current()) {
+            const result = await reader.read();
+            buffer += result.done ? decoder.decode() : decoder.decode(result.value, { stream: true });
+            let boundary: number;
+            while ((boundary = buffer.indexOf("\n\n")) >= 0) {
+              const block = buffer.slice(0, boundary);
+              buffer = buffer.slice(boundary + 2);
+              if (!block.startsWith("data: ")) continue;
+              const event = JSON.parse(block.slice(6));
+              if (event.type === "error") throw new Error(event.error || "AI belum bisa membalas.");
+              if (event.type === "team") {
+                complete = true;
+                window.dispatchEvent(new CustomEvent("vox_teams_updated", { detail: { team: event.team } }));
+                if (!received) {
+                  const reply = event.team?.messages?.findLast((m: { channel: string; role: string; memberId: string }) => m.channel === "direct" && m.role === "assistant" && m.memberId === target.memberId);
+                  if (reply?.content) pending += reply.content;
+                }
+              }
+              if (event.type === "text" && typeof event.text === "string") {
+                received = true;
+                pending += event.text;
+                const sentence = pending.match(/^([\s\S]{35,180}?[.!?…])(?:\s|$)/);
+                const cut = sentence?.[1].length || (pending.length > 200 ? Math.max(120, pending.lastIndexOf(" ", 175)) : 0);
+                if (cut) { play(pending.slice(0, cut)); pending = pending.slice(cut); }
+              }
+            }
+            if (result.done) break;
+          }
+        } finally {
+          await reader.cancel().catch(() => {});
+          reader.releaseLock();
+        }
+        if (current() && !complete) throw new Error("Balasan suara terputus.");
+        play(pending);
+        await queue;
+      } catch (error) {
+        if (current()) {
+          stopSpeaking();
+          setSpeechError((error as Error).message);
+          controller.abort();
+        }
+      } finally {
+        if (teamVoiceAbortRef.current === controller) {
+          teamVoiceAbortRef.current = null;
+          setIsProcessing(false);
+          isProcessingRef.current = false;
+          if (teamCallRef.current === target) resumeHandsFree();
+        }
+      }
+      return;
+    }
+    const cleanQuery = text.toLowerCase().trim();
+    const isScanRequest = /\b(?:scan(?:ning)?|pindai)\b|ambil.*(?:section|komponen)|tiru.*(?:section|hero)/i.test(text);
+    const isBrowserRequest = detectBrowserTask(text) !== null;
+    const isTeamRequest = /\b(?:team|tim|grup|rapat)\b/i.test(text);
 
     stopSpeaking();
     setIsProcessing(true);
@@ -446,7 +700,13 @@ export default function VoiceAiStudio() {
     {
       const q = text.toLowerCase();
       setProcessingLabel(
-        /slide|presentasi|ppt|pitch/.test(q)
+        isScanRequest
+          ? "Memindai referensi website…"
+          : isBrowserRequest
+            ? "Membaca halaman browser…"
+            : isTeamRequest
+              ? "Menghubungi tim AI…"
+              : /slide|presentasi|ppt|pitch/.test(q)
           ? "Lagi nyusun slide presentasi… (±20–40 detik)"
           : /invoice|tagihan|faktur/.test(q)
             ? "Lagi bikin invoice…"
@@ -459,8 +719,6 @@ export default function VoiceAiStudio() {
                   : "Lagi mikir…"
       );
     }
-
-    const cleanQuery = text.toLowerCase().trim();
 
     // JARVIS Wake Word Quick Response
     if (cleanQuery === "jarvis" || cleanQuery === "halo jarvis" || cleanQuery === "hey jarvis" || cleanQuery === "hai jarvis") {
@@ -499,12 +757,12 @@ export default function VoiceAiStudio() {
     ) {
       setIsRightPanelOpen(true);
       setWorkspaceTab("explorer");
-    } else if (
+    } else if (!isScanRequest && !isBrowserRequest && !isTeamRequest && (
       cleanQuery.includes("website") ||
       cleanQuery.includes("preview") ||
       cleanQuery.includes("tampilkan web") ||
       cleanQuery.includes("lihat website")
-    ) {
+    )) {
       setIsRightPanelOpen(true);
       setWorkspaceTab("preview");
     } else if (
@@ -532,18 +790,20 @@ export default function VoiceAiStudio() {
 
     const targetConvId = activeConvId || "conv-default";
 
-    // Optimistically append user message with imageUri if present
+    // Optimistically append user message with imageUri or attachedItem if present
     const tempUserMsg: Message = {
       id: `temp-${Date.now()}`,
       conversationId: targetConvId,
       role: "user",
       content: text,
       imageUri: imageUri || dataUri,
+      attachedItem,
       timestamp: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, tempUserMsg]);
 
     try {
+      await syncSavedLocalProject(activeProjectId);
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -552,20 +812,43 @@ export default function VoiceAiStudio() {
           message: text,
           language: settingsRef.current.language,
           apiKey: settingsRef.current.apiKey,
+          aiMode: settingsRef.current.aiMode || "duo",
+          agentMode: settingsRef.current.agentMode || "interactive",
+          agentPermission: settingsRef.current.agentPermission || "manual",
           systemPrompt: settingsRef.current.systemPrompt,
           imageUri: imageUri,
           imageDataUri: dataUri,
+          attachedItem,
           activeProjectId,
+          mcpEnabled: settingsRef.current.mcpEnabled || [],
         }),
       });
 
       const data = await res.json();
       if (data.success && data.assistantMessage) {
+        if (data.teamUpdated === true) {
+          window.dispatchEvent(new CustomEvent("vox_teams_updated"));
+        }
         setMessages((prev) => [
           ...prev.filter((m) => m.id !== tempUserMsg.id),
           data.userMessage,
           data.assistantMessage,
         ]);
+        if (activeProjectId.startsWith("local-") && Array.isArray(data.codingChangedFiles) && data.codingChangedFiles.length) {
+          const paths = data.codingChangedFiles.filter((item: unknown): item is string => typeof item === "string");
+          try {
+            const applied = await writeAgentChangesToLocalFolder(activeProjectId, paths);
+            if (applied.written.length) setLocalWriteStatus(`${applied.written.length} file hasil agen tersimpan ke folder Mac.`);
+            if (applied.conflicts.length) setLocalWriteStatus(`File asli berubah sejak dibaca: ${applied.conflicts.join(", ")}. VOX tidak menimpanya; hasil agen tetap ada di salinan project.`);
+            if (applied.needsPermission) {
+              setPendingLocalWrite({ projectId: activeProjectId, paths });
+              setLocalWriteStatus("Hasil edit ada di project VOX. Beri izin tulis untuk menyimpannya ke folder Mac.");
+            } else setPendingLocalWrite(null);
+          } catch (error) {
+            setPendingLocalWrite({ projectId: activeProjectId, paths });
+            setLocalWriteStatus(`Belum tersimpan ke folder Mac: ${(error as Error).message}`);
+          }
+        }
 
         // Website baru → buka full page. Kalau user minta lihat kode/struktur, langsung tab Kode.
         const art = data.assistantMessage.artifact;
@@ -594,7 +877,7 @@ export default function VoiceAiStudio() {
         if (data.previewUrl) {
           setPreviewUrl(data.previewUrl);
           setIsRightPanelOpen(true);
-          setWorkspaceTab("preview");
+          setWorkspaceTab((current) => current === "explorer" ? current : "preview");
         }
 
         // Auto speak if enabled
@@ -607,13 +890,28 @@ export default function VoiceAiStudio() {
       }
     } catch (err) {
       console.error("Chat error:", err);
+      setMessages((prev) => [...prev, {
+        id: `local-error-${Date.now()}`,
+        conversationId: targetConvId,
+        role: "assistant",
+        content: (err as Error).message || "Gagal membaca project lokal.",
+        timestamp: new Date().toISOString(),
+      }]);
     } finally {
       setIsProcessing(false);
       isProcessingRef.current = false;
     }
   };
 
-  // Initialize JARVIS Continuous Speech Recognition with VAD (Voice Activity Detection)
+  // Event listener untuk tombol aksi UI (seperti tombol Undo perubahan agen)
+  useEffect(() => {
+    const onSend = (e: Event) => {
+      const text = (e as CustomEvent<{ text?: string }>).detail?.text;
+      if (text) handleSendMessage(text);
+    };
+    window.addEventListener("vox_send_chat", onSend);
+    return () => window.removeEventListener("vox_send_chat", onSend);
+  }, [activeConvId, activeProjectId, settings]);
   const startListening = async () => {
     stopSpeaking();
     playJarvisSound("wake");
@@ -627,7 +925,9 @@ export default function VoiceAiStudio() {
     // 1. Acquire microphone stream for real-time visualizer
     try {
       if (!audioStreamRef.current) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const call = teamCallRef.current;
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        if (call && call !== teamCallRef.current) { stream.getTracks().forEach(track => track.stop()); return; }
         audioStreamRef.current = stream;
         setAudioStream(stream);
       }
@@ -663,7 +963,7 @@ export default function VoiceAiStudio() {
     };
 
     // VAD Silence Timeout: 2.2 seconds allows the user to pause, breathe, or think without premature cutoff
-    const SILENCE_THRESHOLD_MS = settingsRef.current.silenceTimeoutMs || 1200;
+    const SILENCE_THRESHOLD_MS = teamCallRef.current ? 550 : settingsRef.current.silenceTimeoutMs || 1200;
 
     recognition.onresult = (event: any) => {
       // Natural Barge-In: if JARVIS is talking while user speaks, interrupt immediately!
@@ -713,7 +1013,10 @@ export default function VoiceAiStudio() {
     recognition.onerror = (event: any) => {
       console.warn("Speech recognition error:", event.error);
       if (event.error !== "no-speech") {
-        stopListening();
+        if (teamCallRef.current) {
+          endTeamCall();
+          setSpeechError(event.error === "not-allowed" ? "Izinkan mikrofon untuk memulai panggilan." : "Mikrofon atau pengenalan suara belum tersedia.");
+        } else stopListening();
       }
     };
 
@@ -765,8 +1068,39 @@ export default function VoiceAiStudio() {
     }
   };
 
+  const endTeamCall = () => {
+    if (!teamCallRef.current) return;
+    teamCallRef.current = null;
+    if (teamVoiceAbortRef.current) {
+      teamVoiceAbortRef.current.abort();
+      teamVoiceAbortRef.current = null;
+      setIsProcessing(false);
+      isProcessingRef.current = false;
+    }
+    stopListening();
+    stopSpeaking();
+    setIsTeamCalling(false);
+    setLiveTranscript("");
+  };
+
+  const startTeamCall = (voice?: string) => {
+    if (!activeTeamChat?.memberId || isProcessingRef.current) return;
+    if (!("SpeechRecognition" in window) && !("webkitSpeechRecognition" in window)) {
+      setSpeechError("Panggilan suara membutuhkan browser dengan pengenalan suara, seperti Chrome.");
+      return;
+    }
+    stopListening();
+    stopSpeaking();
+    setSpeechError(null);
+    teamCallRef.current = { teamId: activeTeamChat.teamId, memberId: activeTeamChat.memberId, voice };
+    setIsTeamCalling(true);
+    void startListening();
+  };
+
   // Conversation operations
   const handleNewConversation = async () => {
+    endTeamCall();
+    setSelectedTeamChat(null);
     try {
       const res = await fetch("/api/conversations", {
         method: "POST",
@@ -806,19 +1140,19 @@ export default function VoiceAiStudio() {
   };
 
   return (
-    <div className="relative flex flex-col h-dvh w-full bg-canvas text-fg font-sans overflow-hidden antialiased">
+    <div className="relative flex flex-col h-dvh w-full bg-canvas text-fg font-sans overflow-hidden antialiased" suppressHydrationWarning>
       {/* Live Interactive Acoustic Background Animation */}
       <AcousticBackground isListening={isListening} isSpeaking={isSpeaking} />
 
       {/* Header — gaya nav studio: wordmark, link teks bergaris, status, CTA pill */}
-      <header className="h-14 w-full border-b border-line bg-canvas/85 backdrop-blur-xl px-3 sm:px-5 flex items-center justify-between gap-2 shrink-0 z-30">
+      <header className="relative isolate h-14 w-full border-b border-line bg-canvas/85 backdrop-blur-xl px-3 sm:px-5 flex items-center justify-between gap-2 shrink-0 z-30">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             aria-pressed={isSidebarOpen}
             className="icon-btn"
-            title={isSidebarOpen ? "Sembunyikan riwayat sesi" : "Tampilkan riwayat sesi"}
-            aria-label="Riwayat sesi"
+            title={isSidebarOpen ? "Sembunyikan tim AI dan riwayat" : "Tampilkan tim AI dan riwayat"}
+            aria-label="Tim AI dan riwayat"
           >
             <Menu className="w-4 h-4" strokeWidth={1.5} />
           </button>
@@ -893,6 +1227,108 @@ export default function VoiceAiStudio() {
             })}
           </div>
 
+          {/* Custom Sleek AI Mode Dropdown (Muncul tepat di bawah header, no emoji, full SVG) */}
+          <div className="relative flex items-center h-full" ref={modeMenuRef}>
+            {(() => {
+              const currentMode = AI_MODES.find((m) => m.id === (settings.aiMode || "duo")) || AI_MODES[0];
+              const CurrentIcon = currentMode.Icon;
+              return (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsModeOpen(!isModeOpen)}
+                    aria-expanded={isModeOpen}
+                    aria-haspopup="true"
+                    className="h-8 px-2.5 sm:px-3 rounded-full text-xs font-medium bg-raised hover:bg-hover border border-line-strong hover:border-accent text-fg flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer select-none"
+                    title="Pilih mode kolaborasi AI"
+                  >
+                    <span className="w-4 h-4 rounded-full bg-accent/10 flex items-center justify-center text-accent shrink-0">
+                      <CurrentIcon className="w-2.5 h-2.5" strokeWidth={2.5} />
+                    </span>
+                    <span className="truncate max-w-[85px] sm:max-w-none tracking-tight">{currentMode.name}</span>
+                    <ChevronDown
+                      className={`w-3 h-3 text-fg-3 transition-transform duration-200 shrink-0 ${isModeOpen ? "rotate-180 text-accent" : ""}`}
+                      strokeWidth={2}
+                    />
+                  </button>
+
+                  {isModeOpen && (
+                    <div
+                      role="menu"
+                      className="absolute top-full right-0 mt-2 w-[340px] sm:w-[540px] max-w-[calc(100vw-24px)] max-h-[75vh] overflow-y-auto p-2 rounded-2xl bg-raised/95 backdrop-blur-xl border border-line-strong shadow-2xl z-50 flex flex-col gap-1.5 animate-in fade-in slide-in-from-top-1 duration-150 scrollbar-thin"
+                    >
+                      <div className="px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider text-fg-4 border-b border-line sticky top-0 bg-raised/95 backdrop-blur-sm z-10 flex items-center justify-between">
+                        <span>Pilih Model AI (2 Kolom)</span>
+                        <span className="text-[9px] font-mono text-accent font-semibold">{AI_MODES.length} Model Aktif</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {AI_MODES.map(({ id, name, Icon }) => {
+                          const active = (settings.aiMode || "duo") === id;
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                const updated = { ...settings, aiMode: id };
+                                setSettings(updated);
+                                settingsRef.current = updated;
+                                try {
+                                  localStorage.setItem("vox_ai_settings", JSON.stringify(updated));
+                                } catch {}
+                                setIsModeOpen(false);
+                              }}
+                              className={`flex items-center justify-between px-2.5 py-2 rounded-xl text-left border transition-all cursor-pointer ${
+                                active
+                                  ? "bg-accent/10 border-accent/40 text-accent font-semibold shadow-xs"
+                                  : "bg-base/40 border-line/40 text-fg-2 hover:bg-hover hover:border-line hover:text-fg"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span
+                                  className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 border transition-colors ${
+                                    active
+                                      ? "bg-accent/20 border-accent/40 text-accent"
+                                      : "bg-raised border-line text-fg-3"
+                                  }`}
+                                >
+                                  <Icon className="w-3 h-3" strokeWidth={2} />
+                                </span>
+                                <span className={`text-[11px] sm:text-xs truncate ${active ? "text-accent font-semibold" : "text-fg font-medium"}`}>
+                                  {name}
+                                </span>
+                              </div>
+                              {active && (
+                                <Check className="w-3.5 h-3.5 text-accent shrink-0 ml-1" strokeWidth={2.5} />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="pt-1.5 mt-1 border-t border-line">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsModeOpen(false);
+                            setIsSettingsOpen(true);
+                          }}
+                          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-[11px] text-fg-4 hover:text-accent hover:bg-hover/60 transition-colors cursor-pointer"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <Sliders className="w-3.5 h-3.5 text-accent" />
+                            <span>Buka Pengaturan Lengkap & Detail Kredit</span>
+                          </span>
+                          <span className="text-accent text-xs">➔</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+
           {jarvisMode && (
             <span
               className="hidden lg:inline-flex items-center gap-2 h-8 px-3 rounded-full text-[11px] font-medium tracking-[0.04em] text-fg-2 shadow-[inset_0_0_0_1px_var(--line)]"
@@ -920,6 +1356,14 @@ export default function VoiceAiStudio() {
           <button onClick={() => setIsSettingsOpen(true)} className="icon-btn group" title="Pengaturan (model, suara, API)" aria-label="Pengaturan">
             <SettingsIcon strokeWidth={1.5} className="w-4 h-4 transition-transform duration-700 group-hover:rotate-90" />
           </button>
+          <Link
+            href="/call"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-600/90 hover:bg-emerald-500 text-white shadow-sm shadow-emerald-700/30 transition transform active:scale-95 ml-1"
+            title="Telepon Jarvis via Web Phone"
+          >
+            <Phone className="w-3.5 h-3.5 animate-pulse" />
+            <span className="hidden sm:inline">Telepon AI</span>
+          </Link>
           <Btn size="sm" onClick={handleNewConversation} className="hidden sm:inline-flex ml-1">
             Sesi baru
           </Btn>
@@ -927,14 +1371,56 @@ export default function VoiceAiStudio() {
       </header>
 
       {/* Main Studio Workspace Row (Under unbroken global navbar) */}
-      <div className="flex-1 flex w-full h-[calc(100dvh-3.5rem)] overflow-hidden relative z-10 min-w-0">
-        {/* Sidebar: Conversation history */}
-        <ConversationSidebar
+      <div className="flex-1 flex w-full min-h-0 overflow-hidden relative z-10 min-w-0">
+        {/* Tim AI, role contacts, and conversation history */}
+        <TeamSidebar
+          key={activeProjectId}
+          projectId={activeProjectId}
+          onSelectProject={async (newProjectId, convId) => {
+            endTeamCall();
+            stopSpeaking();
+            setSelectedTeamChat(null);
+            setActiveProjectId(newProjectId);
+
+            // Sinkronkan percakapan chat dengan proyek yang dipilih
+            if (convId) {
+              setActiveConvId(convId);
+              loadConversations();
+            } else if (newProjectId.startsWith("session-")) {
+              try {
+                const res = await fetch("/api/teams", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: "get_session", sessionId: newProjectId }),
+                });
+                const d = await res.json();
+                if (d.success && d.session?.conversationId) {
+                  setActiveConvId(d.session.conversationId);
+                  loadConversations();
+                  return;
+                }
+              } catch {}
+              await handleNewConversation();
+            }
+          }}
+          selectedChat={activeTeamChat}
+          onSelectTeam={(selection) => {
+            endTeamCall();
+            stopSpeaking();
+            stopListening();
+            setPendingTeamFolder(null);
+            setSelectedTeamChat({ ...selection, projectId: activeProjectId });
+            setIsRightPanelOpen(false);
+            if (isSidebarDrawer || windowWidth < 768) setIsSidebarOpen(false);
+          }}
+          onGeneralChat={() => { endTeamCall(); setSelectedTeamChat(null); }}
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
           conversations={conversations}
           activeId={activeConvId}
           onSelect={(id) => {
+            endTeamCall();
+            setSelectedTeamChat(null);
             setActiveConvId(id);
             setSettings((s) => (s.systemPrompt ? { ...s, systemPrompt: "" } : s));
             if (isSidebarDrawer) setIsSidebarOpen(false);
@@ -945,21 +1431,53 @@ export default function VoiceAiStudio() {
         />
 
         {/* Central Workspace (Chat Area - Responsive Fluid Grid) */}
-        <main className="relative flex-1 flex flex-col h-full overflow-hidden min-w-0">
+        <main className="relative flex-1 flex flex-col h-full min-h-0 overflow-hidden min-w-0">
+          {activeTeamChat ? <TeamChatPanel
+            key={`${activeProjectId}:${activeTeamChat.teamId}`}
+            teamId={activeTeamChat.teamId}
+            memberId={activeTeamChat.memberId}
+            apiKey={settings.apiKey}
+            projectId={activeProjectId}
+            aiMode={settings.aiMode}
+            initialFolder={pendingTeamFolder?.projectId === activeProjectId && pendingTeamFolder.teamId === activeTeamChat.teamId ? { name: pendingTeamFolder.name, itemCount: pendingTeamFolder.itemCount } : undefined}
+            onLocalFolderConnected={(selection) => {
+              endTeamCall();
+              setPendingTeamFolder({ projectId: selection.projectId, teamId: selection.teamId, name: selection.folderName, itemCount: selection.itemCount });
+              setActiveProjectId(selection.projectId);
+              setSelectedTeamChat({ projectId: selection.projectId, teamId: selection.teamId });
+              setWorkspaceTab("explorer");
+              setIsRightPanelOpen(true);
+            }}
+            onGeneralChat={() => { endTeamCall(); setSelectedTeamChat(null); }}
+            onSelectMember={(memberId) => { endTeamCall(); setSelectedTeamChat({ ...activeTeamChat, memberId }); }}
+            onSpeak={(t, voice) => speakText(t, { voice, noResume: true })}
+            onCall={startTeamCall}
+            onStopCall={endTeamCall}
+            isCalling={isTeamCalling}
+            liveTranscript={liveTranscript}
+            callError={speechError || undefined}
+            isListening={isListening}
+            isSpeaking={isSpeaking}
+            isProcessing={isProcessing}
+            onOpenPreview={(url) => {
+              setPreviewUrl(url);
+              setIsRightPanelOpen(true);
+              setWorkspaceTab("preview");
+            }}
+          /> : <>
           <ChatBackground isListening={isListening} isSpeaking={isSpeaking} isProcessing={isProcessing} />
-          <div className="relative z-10 flex-1 flex flex-col px-3 sm:px-6 pt-3 pb-3 overflow-hidden gap-3 w-full max-w-4xl mx-auto min-w-0">
+          <div className="relative z-10 flex-1 min-h-0 flex flex-col px-3 sm:px-6 pt-4 pb-3 overflow-hidden gap-3 w-full max-w-4xl mx-auto min-w-0">
           {/* Top Audio Waveform Monitor */}
-          {(messages.length > 0 || isListening || isSpeaking || isProcessing) && (
           <VoiceVisualizer
             isListening={isListening}
             isSpeaking={isSpeaking}
             isProcessing={isProcessing}
             audioStream={audioStream}
+            error={speechError}
           />
-          )}
 
           {/* Chat Message Stream */}
-          <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden space-y-5 px-1">
+          <div ref={chatScrollRef} className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain space-y-5 px-1">
             {messages.length === 0 ? (
               <div className="min-h-full flex flex-col justify-center py-8 sm:py-12">
                 <span
@@ -971,12 +1489,15 @@ export default function VoiceAiStudio() {
                 </span>
 
                 <h2 className="mt-6 text-h1 font-medium text-fg">
-                  {["Ngomong.", "Bikin.", "Rilis."].map((w, i) => (
+                  {(activeProjectId.startsWith("session-")
+                    ? ["Ceritain.", "Dengerin.", "Eksekusi."]
+                    : ["Ngomong.", "Bikin.", "Rilis."]
+                  ).map((w, i) => (
                     <span key={w} className="intro-mask">
                       <span className="intro-line" style={{ ["--d" as string]: `${0.15 + i * 0.09}s` }}>
                         {i === 2 ? (
                           <>
-                            Rilis<span className="text-accent">.</span>
+                            {w.replace(".", "")}<span className="text-accent">.</span>
                           </>
                         ) : (
                           w
@@ -987,7 +1508,9 @@ export default function VoiceAiStudio() {
                 </h2>
 
                 <p className="intro mt-6 max-w-md text-[15px] leading-relaxed text-fg-3" style={{ ["--d" as string]: "0.5s" }}>
-                  Asisten suara yang ngoding website, nyusun slide, bikin invoice, dan jalanin terminal — cukup diomongin.
+                  {activeProjectId.startsWith("session-")
+                    ? "Tulis atau ucapkan ide lo secara bebas di sini. AI akan dengerin dulu apa maumu, lalu merekomendasikan divisi AI dan PRD awal yang tepat tanpa ribet popup."
+                    : "Asisten suara yang ngoding website, nyusun slide, bikin invoice, dan jalanin terminal — cukup diomongin."}
                 </p>
 
                 <div className="intro mt-8 flex flex-wrap items-center gap-3" style={{ ["--d" as string]: "0.6s" }}>
@@ -997,20 +1520,32 @@ export default function VoiceAiStudio() {
                   <Btn size="sm"
                     variant="outline"
                     disabled={isProcessing}
-                    onClick={() => handleSendMessage("Bikinin landing page buat kedai kopi lokal yang modern")}
+                    onClick={() => handleSendMessage(
+                      activeProjectId.startsWith("session-")
+                        ? "Gw mau buat marketplace sewa alat camping di Bandung yang ada asuransi kerusakannya dan rating"
+                        : "Bikinin landing page untuk project saya"
+                    )}
                   >
-                    Bikin website
+                    {activeProjectId.startsWith("session-") ? "Coba kirim ide" : "Bikin website"}
                   </Btn>
                 </div>
 
                 {/* Kartu bernomor */}
                 <div className="mt-12 sm:mt-16 grid grid-cols-1 sm:grid-cols-2">
-                  {[
-                    { t: "Landing page kedai kopi", d: "Website full page + kode bisa dicek", q: "Bikinin landing page buat kedai kopi" },
-                    { t: "Slide presentasi AI", d: "5 halaman, siap unduh .pptx", q: "Buat slide presentasi 5 halaman tentang AI" },
-                    { t: "Invoice desain logo", d: "Rapi, siap kirim ke klien", q: "Bikin invoice untuk jasa desain logo" },
-                    { t: "Terminal", d: "Jalanin perintah pakai suara", q: "Buka terminal" },
-                  ].map((c, i) => (
+                  {(activeProjectId.startsWith("session-")
+                    ? [
+                        { t: "Marketplace Sewa Alat", d: "Sewa camping/kamera + asuransi", q: "Gw mau buat marketplace sewa alat camping di Bandung yang ada asuransi kerusakannya dan sistem rating" },
+                        { t: "Platform Kursus Coding", d: "Interaktif dengan live code runner", q: "Gw mau bikin platform kursus coding interaktif dengan live code runner" },
+                        { t: "SaaS Kasir AI UMKM", d: "Aplikasi POS kasir multi-outlet", q: "Gw mau bikin SaaS kasir POS AI untuk UMKM kuliner" },
+                        { t: "Website & Landing Page", d: "Web modern siap rilis", q: "Gw mau buat website landing page modern untuk studio digital" },
+                      ]
+                    : [
+                        { t: "Landing page project", d: "Website full page + kode bisa dicek", q: "Bikinin landing page untuk project saya" },
+                        { t: "Slide presentasi AI", d: "5 halaman, siap unduh .pptx", q: "Buat slide presentasi 5 halaman tentang AI" },
+                        { t: "Invoice desain logo", d: "Rapi, siap kirim ke klien", q: "Bikin invoice untuk jasa desain logo" },
+                        { t: "Terminal", d: "Jalanin perintah pakai suara", q: "Buka terminal" },
+                      ]
+                  ).map((c, i) => (
                     <button
                       key={c.t}
                       onClick={() => handleSendMessage(c.q)}
@@ -1040,7 +1575,7 @@ export default function VoiceAiStudio() {
                 <MessageItem
                   key={msg.id}
                   message={msg}
-                  onSpeak={speakText}
+                  onSpeak={(t) => speakText(t)}
                   isCurrentSpeaking={isSpeaking}
                   onStopSpeaking={stopSpeaking}
                 />
@@ -1059,11 +1594,30 @@ export default function VoiceAiStudio() {
                 </div>
               </div>
             )}
-            <div ref={messagesEndRef} />
           </div>
 
           {/* Interactive Voice & Text Controller with Image Upload & JARVIS Mode */}
+          {localWriteStatus && (
+            <div className="mx-4 mb-2 flex items-center justify-between gap-3 rounded-xl border border-white/15 bg-base px-4 py-2 text-xs text-fg-3" role="status">
+              <span>{localWriteStatus}</span>
+              {pendingLocalWrite?.projectId === activeProjectId && (
+                <button type="button" className="shrink-0 rounded-lg bg-fg px-3 py-2 font-semibold text-base" onClick={async () => {
+                  const pending = pendingLocalWrite;
+                  if (!pending) return;
+                  try {
+                    const applied = await writeAgentChangesToLocalFolder(pending.projectId, pending.paths, true);
+                    if (applied.needsPermission) { setLocalWriteStatus("Izin tulis belum diberikan. Hasil edit tetap aman di project VOX."); return; }
+                    setPendingLocalWrite(null);
+                    setLocalWriteStatus(applied.conflicts.length
+                      ? `${applied.written.length} file tersimpan. ${applied.conflicts.length} file asli berubah; periksa manual sebelum menimpa.`
+                      : `${applied.written.length} file hasil agen tersimpan ke folder Mac.`);
+                  } catch (error) { setLocalWriteStatus(`Belum tersimpan ke folder Mac: ${(error as Error).message}`); }
+                }}>Simpan ke folder Mac</button>
+              )}
+            </div>
+          )}
           <AudioControls
+            projectId={activeProjectId}
             isListening={isListening}
             isSpeaking={isSpeaking}
             isProcessing={isProcessing}
@@ -1074,12 +1628,27 @@ export default function VoiceAiStudio() {
             language={settings.language}
             jarvisMode={jarvisMode}
             onToggleJarvisMode={() => setJarvisMode(!jarvisMode)}
+            agentMode={settings.agentMode || "interactive"}
+            agentPermission={settings.agentPermission || "manual"}
+            onChangeAgentMode={(m) => {
+              const upd = { ...settings, agentMode: m };
+              setSettings(upd);
+              settingsRef.current = upd;
+              try { localStorage.setItem("vox_ai_settings", JSON.stringify(upd)); } catch {}
+            }}
+            onChangeAgentPermission={(p) => {
+              const upd = { ...settings, agentPermission: p };
+              setSettings(upd);
+              settingsRef.current = upd;
+              try { localStorage.setItem("vox_ai_settings", JSON.stringify(upd)); } catch {}
+            }}
             onOpenExplorer={() => {
               setIsRightPanelOpen(true);
               setWorkspaceTab("explorer");
             }}
           />
         </div>
+          </>}
       </main>
 
       {/* Resizable Right Workspace Panel: Website Preview, Explorer, Terminal, Auto Deploy */}
@@ -1094,7 +1663,26 @@ export default function VoiceAiStudio() {
         initialUrl={previewUrl}
         onUrlChange={setPreviewUrl}
         projectId={activeProjectId}
-        onProjectChange={setActiveProjectId}
+        onProjectChange={async (projectId) => {
+          endTeamCall();
+          stopSpeaking();
+          setSelectedTeamChat(null);
+          setActiveProjectId(projectId);
+          if (projectId.startsWith("session-")) {
+            try {
+              const res = await fetch("/api/teams", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "get_session", sessionId: projectId }),
+              });
+              const d = await res.json();
+              if (d.success && d.session?.conversationId) {
+                setActiveConvId(d.session.conversationId);
+                loadConversations();
+              }
+            } catch {}
+          }
+        }}
         isSidebarOpen={isSidebarOpen}
         isSidebarDrawer={isSidebarDrawer}
       />
@@ -1118,6 +1706,48 @@ export default function VoiceAiStudio() {
         onSave={handleSaveSettings}
         availableVoices={availableVoices}
       />
+
+      {/* Remote PIN Lock Screen (Aktif hanya jika STUDIO_PIN diset di .env) */}
+      {pinRequired && !pinAuthorized && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 text-white">
+          <form
+            onSubmit={handleVerifyPin}
+            className="w-full max-w-sm rounded-2xl border border-white/10 bg-zinc-900/95 p-6 shadow-2xl space-y-4 text-center animate-in fade-in zoom-in-95 duration-200"
+          >
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-2xl">
+              🔒
+            </div>
+            <div>
+              <h2 className="text-xl font-bold tracking-tight text-white">VOX·AI Studio Locked</h2>
+              <p className="text-xs text-zinc-400 mt-1">
+                Masukkan Security PIN untuk membuka akses remote studio dari HP Anda.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <input
+                type="password"
+                inputMode="numeric"
+                autoFocus
+                placeholder="Masukkan PIN..."
+                value={pinInput}
+                onChange={(e) => {
+                  setPinInput(e.target.value);
+                  setPinError("");
+                }}
+                className="w-full rounded-xl border border-zinc-700 bg-zinc-800/80 px-4 py-3 text-center text-xl tracking-widest text-white placeholder-zinc-500 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400"
+              />
+              {pinError && <p className="text-xs text-rose-400 font-medium">{pinError}</p>}
+            </div>
+            <button
+              type="submit"
+              disabled={pinChecking || !pinInput}
+              className="w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:brightness-110 disabled:opacity-50"
+            >
+              {pinChecking ? "Memeriksa..." : "Buka Akses Studio"}
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

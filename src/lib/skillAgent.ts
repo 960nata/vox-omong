@@ -23,6 +23,7 @@ export function detectSkill(message: string): SkillKind | null {
   if (/\b(pdf|dokumen|laporan|proposal|surat|makalah|artikel|esai|essay|sop|kontrak|cv|resume)\b/.test(p) &&
       /\b(buat|bikin|buatin|bikinin|buatkan|tulis|tuliskan|susun|generate|create|write)\b/.test(p)) return "document";
   if (/\b(cashflow|arus kas|anggaran|budget|rekap)\b/.test(p)) return "spreadsheet";
+  // Skill komunitas lain (PRD, naming, pajak, dst.) dikerjakan skillEngine di chat, bukan dipaksa jadi file
   return null;
 }
 
@@ -33,7 +34,7 @@ function parseJson<T>(text: string): T | null {
 
 /** JSON dari model: mode JSON asli + suhu rendah, diperbaiki kode bila rusak, baru minta ulang (dengan contoh salahnya). */
 export async function askJson<T>(system: string, prompt: string, apiKey?: string, maxTokens = 4000): Promise<{ data: T; model: string }> {
-  let { text, model } = await callLLM({ system, prompt, apiKey, maxTokens, prefer: ["gemini", "openrouter"], json: true });
+  let { text, model } = await callLLM({ system, prompt, apiKey, maxTokens, prefer: ["deepseek", "claude-haiku-5.5", "cheap"], json: true });
   let data = parseJson<T>(text);
   if (!data) {
     ({ text, model } = await callLLM({
@@ -41,7 +42,7 @@ export async function askJson<T>(system: string, prompt: string, apiKey?: string
       prompt: `${prompt}\n\nJawaban sebelumnya BUKAN JSON valid (awalnya: ${JSON.stringify(text.slice(0, 160))}). Balas HANYA satu objek JSON valid sesuai skema, mulai dengan { dan akhiri dengan }.`,
       apiKey,
       maxTokens,
-      prefer: ["gemini", "openrouter"],
+      prefer: ["deepseek", "claude-haiku-5.5", "cheap"],
       json: true,
       temperature: 0,
     }));

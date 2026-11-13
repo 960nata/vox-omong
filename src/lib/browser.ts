@@ -69,11 +69,69 @@ export async function getBrowser() {
   if (!browser || !browser.isConnected()) {
     browser = await chromium.launch({ executablePath: await chromePath(), headless: true, args: ["--no-first-run", "--disable-extensions"] });
   }
-  idle = setTimeout(() => {
+  const closeWhenUnused = () => {
+    // Sesi percakapan masih memegang halaman: jangan matikan browser di tengah tugas.
+    if (browser?.isConnected() && browser.contexts().length) {
+      idle = setTimeout(closeWhenUnused, IDLE_MS);
+      idle.unref?.();
+      return;
+    }
     void browser?.close().catch(() => {});
     browser = null;
-  }, IDLE_MS);
+  };
+  idle = setTimeout(closeWhenUnused, IDLE_MS);
+  idle.unref?.();
   return browser;
+}
+
+export const BROWSER_PROFILE_DIR = path.join(DATA, "browser_profile");
+let persistentContext: import("playwright-core").BrowserContext | null = null;
+let persistentIdleTimer: NodeJS.Timeout | null = null;
+
+export async function getPersistentContext(headless = true) {
+  if (persistentIdleTimer) clearTimeout(persistentIdleTimer);
+  if (!persistentContext || !persistentContext.browser()?.isConnected()) {
+    await fs.mkdir(BROWSER_PROFILE_DIR, { recursive: true });
+    persistentContext = await chromium.launchPersistentContext(BROWSER_PROFILE_DIR, {
+      executablePath: await chromePath(),
+      headless,
+      args: ["--no-first-run", "--disable-extensions"],
+      viewport: { width: 1280, height: 800 },
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    });
+  }
+  const closeWhenUnused = () => {
+    if (persistentContext?.browser()?.isConnected() && persistentContext.pages().length > 1) {
+      persistentIdleTimer = setTimeout(closeWhenUnused, IDLE_MS);
+      persistentIdleTimer.unref?.();
+      return;
+    }
+    void persistentContext?.close().catch(() => {});
+    persistentContext = null;
+  };
+  persistentIdleTimer = setTimeout(closeWhenUnused, IDLE_MS);
+  persistentIdleTimer.unref?.();
+  return persistentContext;
+}
+
+/** Buka jendela browser nyata di layar Mac agar pengguna bisa login ke LinkedIn (sesi disimpan permanen). */
+export async function launchInteractiveLoginWindow(targetUrl = "https://www.linkedin.com/login"): Promise<{ message: string }> {
+  const url = await checkUrl(targetUrl);
+  await fs.mkdir(BROWSER_PROFILE_DIR, { recursive: true });
+  if (persistentContext) {
+    await persistentContext.close().catch(() => {});
+    persistentContext = null;
+  }
+  const ctx = await chromium.launchPersistentContext(BROWSER_PROFILE_DIR, {
+    executablePath: await chromePath(),
+    headless: false,
+    args: ["--no-first-run", "--disable-extensions"],
+    viewport: { width: 1280, height: 850 },
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  });
+  const page = ctx.pages()[0] || (await ctx.newPage());
+  await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: 30000 });
+  return { message: "Jendela browser login telah dibuka di layarmu. Silakan login akun LinkedIn. Sesi dan cookie otomatis tersimpan permanen di profil browser tim." };
 }
 
 export interface PageResult {
@@ -84,14 +142,35 @@ export interface PageResult {
   screenshot?: string;
 }
 
-export async function openPage(rawUrl: string, opts: { screenshot?: boolean; fullPage?: boolean; width?: number; height?: number } = {}): Promise<PageResult> {
+export async function openPage(rawUrl: string, opts: { screenshot?: boolean; fullPage?: boolean; width?: number; height?: number; persistent?: boolean } = {}): Promise<PageResult> {
   const url = await checkUrl(rawUrl);
-  const b = await getBrowser();
-  const ctx = await b.newContext({
-    viewport: { width: Math.min(opts.width || 1280, 1920), height: Math.min(opts.height || 800, 1200) },
-    acceptDownloads: false,
-    serviceWorkers: "block",
-  });
+  const usePersistent = opts.persistent || url.hostname.includes("linkedin.com");
+  let ctx: import("playwright-core").BrowserContext;
+  let isStandaloneCtx = false;
+  if (usePersistent) {
+    try {
+      ctx = await getPersistentContext(true);
+    } catch {
+      const b = await getBrowser();
+      ctx = await b.newContext({
+        viewport: { width: Math.min(opts.width || 1280, 1920), height: Math.min(opts.height || 800, 1200) },
+        acceptDownloads: false,
+        serviceWorkers: "block",
+        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      });
+      isStandaloneCtx = true;
+    }
+  } else {
+    const b = await getBrowser();
+    ctx = await b.newContext({
+      viewport: { width: Math.min(opts.width || 1280, 1920), height: Math.min(opts.height || 800, 1200) },
+      acceptDownloads: false,
+      serviceWorkers: "block",
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    });
+    isStandaloneCtx = true;
+  }
+  let page: import("playwright-core").Page | null = null;
   try {
     // Setiap permintaan (termasuk redirect & sub-resource) divalidasi ulang.
     await ctx.route("**/*", async (route) => {
@@ -102,18 +181,30 @@ export async function openPage(rawUrl: string, opts: { screenshot?: boolean; ful
         await route.abort("blockedbyclient");
       }
     });
-    const page = await ctx.newPage();
+    page = await ctx.newPage();
     page.setDefaultTimeout(20_000);
-    await page.goto(url.toString(), { waitUntil: "load", timeout: 25_000 });
-    await page.waitForTimeout(600);
-    const title = await page.title();
-    const text = (await page.evaluate(() => document.body?.innerText || "")).replace(/\n{3,}/g, "\n\n").slice(0, 6000);
-    const links = await page.evaluate(() =>
-      Array.from(document.querySelectorAll("a[href]"))
-        .slice(0, 25)
-        .map((a) => ({ text: (a.textContent || "").trim().slice(0, 60), href: (a as HTMLAnchorElement).href }))
-        .filter((l) => l.text && /^https?:/.test(l.href))
-    );
+    await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: 20_000 });
+    await page.waitForTimeout(800);
+    let title = "";
+    let text = "";
+    let links: { text: string; href: string }[] = [];
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
+        title = await page.title();
+        text = (await page.evaluate(() => document.body?.innerText || "")).replace(/\n{3,}/g, "\n\n").slice(0, 6000);
+        links = await page.evaluate(() =>
+          Array.from(document.querySelectorAll("a[href]"))
+            .slice(0, 25)
+            .map((a) => ({ text: (a.textContent || "").trim().slice(0, 60), href: (a as HTMLAnchorElement).href }))
+            .filter((l) => l.text && /^https?:/.test(l.href))
+        );
+        break;
+      } catch (err) {
+        if (attempt === 2) throw err;
+        await page.waitForTimeout(1000);
+      }
+    }
     let screenshot: string | undefined;
     if (opts.screenshot) {
       await fs.mkdir(SHOTS, { recursive: true });
@@ -128,7 +219,8 @@ export async function openPage(rawUrl: string, opts: { screenshot?: boolean; ful
     await log({ action: "open", url: url.toString(), ok: false, error: (e as Error).message.slice(0, 160) });
     throw e;
   } finally {
-    await ctx.close().catch(() => {});
+    if (page) await page.close().catch(() => {});
+    if (isStandaloneCtx) await ctx.close().catch(() => {});
   }
 }
 

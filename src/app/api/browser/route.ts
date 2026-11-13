@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { openPage, readShot } from "@/lib/browser";
+import { launchInteractiveLoginWindow, openPage, readShot } from "@/lib/browser";
 
 export async function GET(req: Request) {
   const shot = new URL(req.url).searchParams.get("shot") || "";
@@ -10,7 +10,12 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { url, screenshot, fullPage } = await req.json();
+    const body = await req.json();
+    if (body.action === "login_window") {
+      const res = await launchInteractiveLoginWindow(body.url || "https://www.linkedin.com/login");
+      return NextResponse.json({ success: true, ...res });
+    }
+    const { url, screenshot, fullPage } = body;
     if (typeof url !== "string" || !url.trim()) return NextResponse.json({ success: false, error: "url kosong" }, { status: 400 });
     const page = await openPage(url.trim(), { screenshot: !!screenshot, fullPage: !!fullPage });
     return NextResponse.json({ success: true, ...page });

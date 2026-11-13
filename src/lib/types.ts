@@ -135,6 +135,20 @@ export interface ArtifactItem {
   status: "completed" | "in_progress" | "review";
 }
 
+export interface AttachedItem {
+  type: "file" | "folder" | "image";
+  name: string;
+  size?: number;
+  itemCount?: number;
+  url?: string;
+  dataUri?: string;
+  relativePath?: string;
+  projectId?: string;
+  isLocalFile?: boolean;
+  isProjectFile?: boolean;
+  files?: { name: string; size: number; path: string }[];
+}
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -147,6 +161,7 @@ export interface Message {
   artifacts?: ArtifactItem[];
   imageUri?: string;
   imageAnalysis?: string;
+  attachedItem?: AttachedItem;
 }
 
 export interface Conversation {
@@ -157,8 +172,74 @@ export interface Conversation {
   messages: Message[];
 }
 
+export type AIMode =
+  | "flash"
+  | "duo"
+  | "hybrid"
+  | "user-private"
+  | "coding-china-auto"
+  | "coding-us-auto"
+  | "deepseek-v4.1-flash"
+  | "deepseek-v4-pro"
+  | "claude-sonnet-5.5"
+  | "claude-opus-5.5"
+  | "claude-fable-5"
+  | "claude-haiku-5.5"
+  | "claude-sonnet-4.6"
+  | "claude-sonnet-5.0"
+  | "claude-opus-5.0"
+  | "gpt-6-astra"
+  | "gpt-6-sol"
+  | "gpt-6.1-sol"
+  | "gpt-5.6-luna"
+  | "grok-4.7"
+  | "qwen3.8-max"
+  | "qwen3.7-max"
+  | "qwen3.7-plus"
+  | "kimi-k2.7-code"
+  | "kimi-k3"
+  | "glm-5.3"
+  | "glm-5.3-flash"
+  | "minimax-m3"
+  | "minimax-m2.7"
+  | "hy3"
+  | "gemini-3.8-flash"
+  | "kai-baik"
+  | "nemotron-3.5-super-vl:free"
+  | "nemotron-3.5-lightning:free"
+  | "nemotron-3-nano-omni:free"
+  | "solar-mini4:free"
+  | "north-mini-code:free"
+  | "gemma-4-31b:free"
+  | "gemma-4-26b:free"
+  | "dots-3-note:free"
+  | "flint-1.0:free"
+  | "lfm-3-1.7b:free"
+  | "longcat-2.5:free"
+  | "sonnet-4.5"
+  | "sonnet-4.6"
+  | "sonnet-5.0"
+  | "sonnet-5.5"
+  | "opus-5.0"
+  | "opus-5.5"
+  | "sonnet"
+  | "opus"
+  | "qwen-max"
+  | "qwen-plus"
+  | "free-nemotron"
+  | "free-solar"
+  | (string & {});
+
+export type AgentModeType = "interactive" | "plan" | "autopilot";
+export type AgentPermissionType = "manual" | "auto" | "sandbox";
+
+export type McpProviderId = "perplexity" | "firecrawl" | "posthog" | "playwright" | "composio" | "supabase" | "vercel" | "chrome-devtools";
+
 export interface VoiceSettings {
   apiKey: string;
+  aiMode?: AIMode;
+  agentMode?: AgentModeType;
+  agentPermission?: AgentPermissionType;
   language: "id-ID" | "en-US";
   ttsProvider: "neural" | "browser";
   neuralVoice: string;
@@ -172,6 +253,15 @@ export interface VoiceSettings {
   githubToken?: string;
   githubRepoUrl?: string;
   vercelToken?: string;
+  mcpEnabled?: McpProviderId[];
+  // Advanced Claude / GPT-style settings
+  temperature?: number;
+  maxTokens?: number;
+  customGatewayUrl?: string;
+  personaTone?: "formal" | "casual" | "concise" | "expert";
+  agentMaxSteps?: number;
+  autoCriticEnabled?: boolean;
+  autoMemoryEnabled?: boolean;
 }
 
 /** Surat resmi berkop (surat dinas, undangan, keterangan, lamaran, dll.). Kosong = tidak digambar. */

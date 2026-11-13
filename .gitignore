@@ -52,3 +52,5 @@ jarvis-call/.venv/
 
 # catatan lokal
 *.patch
+# Local code intelligence runtimes and indexes
+.tools/

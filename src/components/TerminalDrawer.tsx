@@ -8,7 +8,9 @@ interface TerminalLog {
   command: string;
   stdout: string;
   stderr: string;
-  exitCode: number;
+  exitCode: number | null;
+  running?: boolean;
+  ready?: boolean;
   durationMs: number;
   timestamp: string;
 }
@@ -59,8 +61,10 @@ export function TerminalDrawer({ isOpen, onClose, onTriggerVoiceFeedback }: Term
         id: `term-${Date.now()}`,
         command: cmdToRun.trim(),
         stdout: data.stdout || "",
-        stderr: data.stderr || "",
-        exitCode: data.exitCode ?? (data.success ? 0 : 1),
+        stderr: data.stderr || data.error || "",
+        exitCode: data.exitCode === null ? null : data.exitCode ?? (data.success ? 0 : 1),
+        running: !!data.running,
+        ready: !!data.ready,
         durationMs: data.durationMs || Date.now() - startTime,
         timestamp: new Date().toLocaleTimeString(),
       };
@@ -70,7 +74,7 @@ export function TerminalDrawer({ isOpen, onClose, onTriggerVoiceFeedback }: Term
 
       if (onTriggerVoiceFeedback) {
         if (data.success) {
-          onTriggerVoiceFeedback(`Perintah ${cmdToRun.split(" ")[0]} selesai dijalankan dengan sukses.`);
+          onTriggerVoiceFeedback(data.running ? data.ready ? "Server sudah berjalan." : "Proses berjalan, menunggu server siap." : `Perintah ${cmdToRun.split(" ")[0]} selesai dijalankan dengan sukses.`);
         } else {
           onTriggerVoiceFeedback(`Perintah selesai dengan kode error.`);
         }
@@ -115,9 +119,36 @@ export function TerminalDrawer({ isOpen, onClose, onTriggerVoiceFeedback }: Term
         {/* Quick actions */}
         <div className="flex items-center gap-1.5 overflow-x-auto">
           <button
+            onClick={() => executeCommand("node -v && npm -v")}
+            disabled={isRunning}
+            className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg text-[10px] flex items-center gap-1 transition-colors text-accent font-medium shrink-0"
+            title="Cek versi Node & NPM"
+          >
+            node & npm
+          </button>
+
+          <button
+            onClick={() => executeCommand("npm init -y")}
+            disabled={isRunning}
+            className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg text-[10px] flex items-center gap-1 transition-colors text-glow shrink-0"
+            title="Inisialisasi package.json"
+          >
+            npm init
+          </button>
+
+          <button
+            onClick={() => executeCommand("npm install")}
+            disabled={isRunning}
+            className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg text-[10px] flex items-center gap-1 transition-colors text-moss shrink-0"
+            title="Install dependensi npm"
+          >
+            npm install
+          </button>
+
+          <button
             onClick={() => executeCommand("git status")}
             disabled={isRunning}
-            className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg text-[10px] flex items-center gap-1 transition-colors"
+            className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg text-[10px] flex items-center gap-1 transition-colors shrink-0"
           >
             <GitBranch className="w-3 h-3 text-accent-hi" />
             git status
@@ -126,7 +157,7 @@ export function TerminalDrawer({ isOpen, onClose, onTriggerVoiceFeedback }: Term
           <button
             onClick={() => executeCommand("git add -A && git status")}
             disabled={isRunning}
-            className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg text-[10px] flex items-center gap-1 transition-colors"
+            className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg text-[10px] flex items-center gap-1 transition-colors shrink-0"
           >
             <GitBranch className="w-3 h-3 text-moss" />
             git add all
@@ -135,7 +166,7 @@ export function TerminalDrawer({ isOpen, onClose, onTriggerVoiceFeedback }: Term
           <button
             onClick={() => executeCommand("npm run build")}
             disabled={isRunning}
-            className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg text-[10px] flex items-center gap-1 transition-colors"
+            className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg text-[10px] flex items-center gap-1 transition-colors shrink-0"
           >
             <RefreshCw className="w-3 h-3 text-lagoon" />
             npm build
@@ -144,7 +175,7 @@ export function TerminalDrawer({ isOpen, onClose, onTriggerVoiceFeedback }: Term
           <button
             onClick={() => executeCommand("vercel --version")}
             disabled={isRunning}
-            className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg text-[10px] flex items-center gap-1 transition-colors"
+            className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 hover:text-fg border border-line-strong rounded-lg text-[10px] flex items-center gap-1 transition-colors shrink-0"
           >
             <Cloud className="w-3 h-3 text-fg" />
             vercel info
@@ -153,14 +184,14 @@ export function TerminalDrawer({ isOpen, onClose, onTriggerVoiceFeedback }: Term
           <button
             onClick={() => setLogs([])}
             title="Bersihkan Output"
-            className="p-1 text-fg-3 hover:text-fg rounded-lg transition-colors"
+            className="p-1 text-fg-3 hover:text-fg rounded-lg transition-colors ml-auto shrink-0"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
 
           <button
             onClick={onClose}
-            className="p-1 text-fg-3 hover:text-fg rounded-lg transition-colors ml-2"
+            className="p-1 text-fg-3 hover:text-fg rounded-lg transition-colors ml-1 shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
@@ -192,7 +223,7 @@ export function TerminalDrawer({ isOpen, onClose, onTriggerVoiceFeedback }: Term
             )}
 
             <div className="flex items-center gap-1.5 text-[10px]">
-              {log.exitCode === 0 ? (
+              {log.running ? <span className="text-accent">{log.ready ? "Server berjalan · HTTP diperiksa" : "Proses berjalan · menunggu server siap"}</span> : log.exitCode === null ? <span className="text-fg-3">Proses berhenti / tidak aktif</span> : log.exitCode === 0 ? (
                 <span className="text-moss flex items-center gap-1">
                   <Check className="w-3 h-3" /> Exited with code 0
                 </span>
@@ -215,7 +246,7 @@ export function TerminalDrawer({ isOpen, onClose, onTriggerVoiceFeedback }: Term
           value={inputCmd}
           onChange={(e) => setInputCmd(e.target.value)}
           disabled={isRunning}
-          placeholder="Ketik perintah shell (contoh: git status, npm run build, ls -la, vercel deploy)..."
+          placeholder="Ketik perintah shell (contoh: npm i lucide-react, npm run dev, git status, ls -la)..."
           className="flex-1 bg-transparent text-fg outline-hidden placeholder-fg-4 text-xs font-mono"
         />
         <button

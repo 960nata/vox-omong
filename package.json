@@ -16,24 +16,33 @@
     "node": ">=20"
   },
   "scripts": {
+    "predev": "node scripts/start-local-tools.mjs",
     "dev": "next dev",
+    "mobile": "node scripts/mobile.mjs",
     "build": "next build",
+    "prestart": "node scripts/start-local-tools.mjs",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "wa": "node scripts/wa-bot.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@supabase/supabase-js": "^2.119.0",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
     "animejs": "^4.5.0",
     "jszip": "^3.10.2",
     "lottie-web": "^5.13.0",
     "lucide-react": "^1.16.0",
     "msedge-tts": "^2.1.1",
     "next": "16.4.5",
+    "pino": "^10.4.0",
     "playwright-core": "^1.65.0",
     "pptxgenjs": "^4.0.1",
+    "qrcode-terminal": "^0.12.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "typescript": "^5",
     "unpdf": "^1.9.1"
   },
   "devDependencies": {
@@ -44,8 +53,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.5",
     "postcss": "^8.5.32",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+    "tailwindcss": "^4"
   },
   "overrides": {
     "magic-string": "0.30.17"

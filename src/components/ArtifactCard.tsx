@@ -775,13 +775,29 @@ export function ArtifactCard({ artifact }: ArtifactCardProps) {
           </span>
         </div>
 
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="px-2 py-1 text-xs font-mono bg-raised hover:bg-hover text-fg hover:text-fg border border-line-strong rounded-lg flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer shrink-0"
-        >
-          <Code2 className="w-3.5 h-3.5 text-accent" />
-          <span>Review</span>
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (window.confirm("Batalkan (undo) semua perubahan file yang dibuat oleh agen coding ini?")) {
+                window.dispatchEvent(new CustomEvent("vox_send_chat", { detail: { text: "batalkan perubahan agen" } }));
+              }
+            }}
+            className="px-2 py-1 text-xs font-mono bg-danger/10 hover:bg-danger/20 text-danger border border-danger/30 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+            title="Kembalikan semua file ke kondisi awal sebelum agen mengedit"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Undo</span>
+          </button>
+
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="px-2 py-1 text-xs font-mono bg-raised hover:bg-hover text-fg hover:text-fg border border-line-strong rounded-lg flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer shrink-0"
+          >
+            <Code2 className="w-3.5 h-3.5 text-accent" />
+            <span>Review</span>
+          </button>
+        </div>
       </div>
 
       {/* Files List */}
