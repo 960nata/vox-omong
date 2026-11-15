@@ -596,7 +596,7 @@ export function SettingsModal({
                 { id: "credits" as SettingsTab, label: "Kredit & Token", icon: CreditCard, badge: "742 Juta" },
                 { id: "voice" as SettingsTab, label: "Suara & Audio", icon: Volume2 },
                 { id: "persona" as SettingsTab, label: "Persona & Prompt", icon: MessageSquare },
-                { id: "tools" as SettingsTab, label: "Alat MCP & Agen", icon: Wrench },
+                { id: "tools" as SettingsTab, label: "Alat MCP & Agen", icon: Wrench, badge: "Eksperimental" },
                 { id: "security" as SettingsTab, label: "Keamanan & Sync", icon: Shield },
               ].map((tab) => {
                 const Icon = tab.icon;
@@ -1175,8 +1175,15 @@ export function SettingsModal({
             {activeTab === "tools" && (
               <div className="space-y-5">
                 <div>
-                  <h3 className="text-sm font-semibold text-fg">Alat Eksternal MCP & Agen Otonom</h3>
-                  <p className="text-xs text-fg-3">Pilih server Model Context Protocol yang diizinkan untuk diakses agen mandiri.</p>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-fg">Alat Eksternal MCP & Agen Otonom</h3>
+                    <span className="text-[9px] font-mono font-semibold px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                      EKSPERIMENTAL
+                    </span>
+                  </div>
+                  <p className="text-xs text-fg-3 mt-1">
+                    Fitur eksperimental (non-inti) yang sedang dievaluasi dan belum dilindungi jaring pengaman tes otomatis.
+                  </p>
                 </div>
 
                 {/* Autonomous ReAct Steps Slider */}

@@ -4,25 +4,32 @@
 
 Asisten AI yang bisa diajak ngomong, lalu beneran ngerjain: bikin website, slide, dokumen, video, sampai riset di web. Proyek ini saya bangun karena capek pindah-pindah tool. Maunya satu tempat: ngomong atau ketik, hasilnya langsung jadi file yang bisa dipakai.
 
-Masih terus dikembangkan. Beberapa bagian sudah enak dipakai, beberapa masih kasar. Bagian "Yang belum" di bawah saya tulis apa adanya.
+> ⚠️ **Status Proyek:** Masih tahap Alpha (~4/10). Proyek sedang dalam masa *feature freeze* untuk stabilisasi, penambahan tes otomatis, dan penguatan keamanan menuju versi stabil `v0.1.0`. Rincian rencana pematangan dapat dilihat di [docs/ROADMAP.md](docs/ROADMAP.md).
 
-## Yang bisa dikerjakan
+## 7 Alur Inti (Core Workflows)
 
-- **Website** — landing page atau toko sederhana dari satu kalimat, dengan preview langsung dan kode yang bisa dicek. Gaya, warna, dan isi bisa direvisi lewat chat.
-- **Slide** — minimal 7 slide dengan foto, bisa diunduh sebagai `.pptx`.
-- **Dokumen** — laporan, proposal, dan surat resmi berkop. Unduh sebagai `.docx` atau PDF.
-- **Invoice dan tabel** — tabel bisa diunduh sebagai `.xlsx` (angka tetap angka) atau CSV.
-- **Video motion graphic** — teks kinetik, grafik yang menggambar dirinya, dan transisi antar adegan, direkam jadi `.webm`. Bisa dari kalimat, JSON adegan, atau HTML.
-- **Riset** — beberapa pencarian jalan paralel, hasilnya dirangkum dan dipakai sebagai bahan slide, dokumen, atau video.
-- **Perintah berantai** — misalnya: *"riset tren kopi 2026, bikin slide, terus bikin videonya"*. Dikerjakan berurutan dalam satu balasan.
-- **Baca file** — lampirkan PDF, Word, Excel, PowerPoint, atau CSV, lalu minta diringkas atau dijadikan bahan.
-- **Email** — menulis draf dan mengirim lewat Gmail, hanya setelah kamu membalas "kirim".
-- **Browser** — membuka halaman, mencari, dan membaca isinya. Tidak login, tidak membayar, tidak mengisi password.
-- **Lowongan dari web** — ekstrak posisi, perusahaan, lokasi, gaji yang tercantum, dan tautan dari halaman lowongan publik (LinkedIn, Jobstreet, situs karier yang memakai JobPosting). Hasil bisa diunduh sebagai CSV/Excel; tidak mengarang kolom yang tidak tersedia. Sesi browser per chat bertahan selama 15 menit tanpa aktivitas, maksimal 5 sesi sekaligus. Login, CAPTCHA, unggah CV dan kirim lamaran/publikasi loker belum otomatis dilakukan.
-- **Grup dan kontak AI** — tim Developer, Marketing dan Kreatif terpisah. Pilih grup untuk rapat/tugas, atau anggota untuk chat pribadi. Nama dan avatar anggota bisa diubah. Di profil anggota, pilih keahlian Agency Agents; delapan panduan spesialis pilihan tersedia dan dipakai dalam chat, laporan tim, serta pembuatan website oleh anggota frontend. Tim lama mendapat pilihan bawaan dan dapat menggantinya atau menonaktifkannya. Tim baru tidak memanggil model sampai diberi tugas. Chat pribadi memakai satu panggilan; rapat biasa dibatasi dua spesialis dan ketua; `@nama` memanggil anggota yang dituju. Maksimal dua pekerjaan model bersamaan. Dengar progres memakai laporan tersimpan.
-- **Referensi website** — pindai website atau hero/navbar/pricing/footer: ambil HTML frontend yang dibersihkan, sampel computed CSS dan screenshot, lalu simpan di folder `references/` proyek aktif. Perintah membuat ulang mengirim referensi ke pembuat website. Source backend/framework asli dan stylesheet lengkap tidak ikut diambil.
-- **Terminal dari chat** — `jalankan di terminal: npm ...` menjalankan perintah di proyek aktif dengan output dan exit code nyata. Server `npm run dev` tetap hidup, punya status/stop dan preview setelah pemeriksaan HTTP. Proyek HTML statis dapat memakai server Node tanpa dependency tambahan; tidak ada script build sukses palsu.
-- **Suara** — bisa diajak ngobrol lewat mikrofon, dan ada layanan terpisah (`jarvis-call/`) supaya bisa ditelpon lewat WhatsApp.
+Tujuh kemampuan utama yang **wajib selalu berfungsi stabil**, dipertahankan kualitasnya, dan menjadi target utama jaring pengaman tes otomatis:
+
+1. **Percakapan Dasar (Chat & Suara)** — Ngobrol interaktif lewat teks atau mikrofon dengan respons suara alami.
+2. **Slide Presentasi** — Minimal 7 slide visual dengan foto otomatis (Unsplash), diekspor langsung sebagai `.pptx`.
+3. **Dokumen & Surat Resmi** — Pembuatan proposal, laporan, atau surat dinas berkop. Diekspor sebagai `.docx` atau PDF (termasuk tabel invoice `.xlsx`).
+4. **Website Statis** — Merakit landing page atau toko interaktif dari satu instruksi, lengkap dengan live preview dan kode yang bisa disunting.
+5. **Video Motion Graphic** — Animasi teks kinetik, grafik dinamis, dan transisi antar-adegan, direkam menjadi file `.webm`.
+6. **Kirim Email Konfirmasi** — Menyusun draf pesan dan mengirim via SMTP Gmail hanya setelah konfirmasi eksplisit dari pengguna ("kirim").
+7. **Perintah Berantai (Orchestrator)** — Menjalankan alur multi-output dalam satu perintah (misal: *"riset tren kopi, buat slide, lalu render videonya"*).
+
+---
+
+## Fitur Eksperimental (Non-Inti / Dalam Pengembangan)
+
+Fitur di bawah ini telah tersedia di kode tetapi belum dilindungi tes otomatis dan masih dalam evaluasi:
+
+- 🧪 **Tim Agen & Virtual Org (Divisi/Sprint)** — Pembagian peran agen Developer, Marketing, dan Kreatif untuk kolaborasi proyek.
+- 🧪 **Browser Scraper & Ekstraksi Lowongan** — Penjelajah web headless Chrome untuk membaca situs publik dan menyusun daftar pekerjaan.
+- 🧪 **Eksekusi Terminal dari Chat** — Menjalankan perintah shell (`npm`, `node`) langsung di proyek aktif.
+- 🧪 **Scan & Referensi Website** — Memindai CSS dan screenshot dari website luar untuk dijadikan acuan styling.
+- 🧪 **Telepon WhatsApp (`jarvis-call/`)** — Layanan jembatan suara via WhatsApp call.
+- 🧪 **Katalog Community Skills** — Injeksi panduan keahlian komunitas ke prompt model.
 
 ## Cara menjalankan
 

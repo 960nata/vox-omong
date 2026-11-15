@@ -41,9 +41,10 @@ Dicek langsung di repo: kode sekitar 40 ribu baris, `tsc` bersih, branch `main` 
 > *Kerjakan berurutan dan jangan dilompat. Tiap tahap jadi pondasi tahap berikutnya.*
 
 ### Tahap 1: Bekukan fitur dan tentukan inti (1 minggu)
-- [ ] Stop nambah fitur baru dulu.
-- [ ] Tulis di `README` 5–7 alur inti yang wajib selalu jalan: chat biasa, slide, dokumen, website, video, email, perintah berantai.
-- [ ] Cap fitur lain "eksperimental" dan sembunyikan di Settings.
+- [x] Stop nambah fitur baru dulu (feature freeze aktif).
+- [x] Tulis di `README` 5–7 alur inti yang wajib selalu jalan: chat biasa, slide, dokumen, website, video, email, perintah berantai.
+- [x] Cap fitur lain "eksperimental" dan sembunyikan/tandai di Settings.
+- [x] Integrasikan arah arsitektur Paperclip control plane ([docs/PRD_FUSI_PAPERCLIP.md](docs/PRD_FUSI_PAPERCLIP.md)).
 
 ### Tahap 2: Jaring pengaman (1–2 minggu)
 - [ ] Tes untuk tiap alur inti, pakai respons AI palsu (mock) supaya gratis token dan hasilnya konsisten.
