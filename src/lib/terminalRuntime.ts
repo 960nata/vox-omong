@@ -6,7 +6,8 @@ import { projectDir } from "./projectDir";
 const BLOCKED_PATTERNS = [/rm\s+-rf\s+\/($|\s)/i, /mkfs/i, /dd\s+if=/i, />\s*\/dev\/sd/i];
 const LOG_LIMIT = 24_000;
 const MAX_PROCESSES = 5;
-const SECRET_NAME = /(?:key|token|secret|password|credential|authorization|cookie|database_url|connection_string|private)/i;
+// Hanya lindungi kunci AI/Studio internal agar tidak bocor, tetapi izinkan variabel pengembangan seperti GITHUB_TOKEN
+const SECRET_NAME = /(?:gemini_api_key|ai_gateway_key|unsplash_access_key|gmail_app_password|studio_pin|jarvis_api_secret|anthropic_api_key|openai_api_key)/i;
 
 export class TerminalCommandError extends Error {
   constructor(message: string, public status = 400) { super(message); }
@@ -73,7 +74,7 @@ function redact(value: string, secrets: string[]) {
 }
 
 function persistentCommand(command: string) {
-  return /(?:^|&&\s*|;\s*)(?:npm\s+(?:run\s+)?(?:dev|start)|(?:pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start))(?:\s|$)/i.test(command);
+  return /(?:^|&&\s*|;\s*)(?:npm\s+(?:run\s+)?(?:dev|start)|(?:pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start)|python(?:3)?\s+(?:-m\s+(?:http\.server|uvicorn|flask|gunicorn)|app\.py|main\.py|server\.py)|uvicorn|flask\s+run|fastapi\s+run|node\s+(?:server|app|index)\.(?:m?js|ts)|vite(?:\s+dev)?|next\s+dev)(?:\s|$)/i.test(command);
 }
 
 async function exists(file: string) { return fs.access(file).then(() => true, () => false); }
@@ -263,9 +264,11 @@ export async function executeTerminal(opts: { command: string; projectId?: strin
   });
 }
 
+const SUPPORTED_CLI = "(?:npm|npx|node|pnpm|yarn|bun|python|python3|pip|pip3|git|ls|cat|pwd|mkdir|curl|wget|echo|deno|cargo|go|make|docker|touch|find|grep|head|tail)";
+
 function concreteCommand(text: string): string | null {
-  const inline = text.match(/`((?:npm|npx|node|pnpm|yarn|bun)\s+[^`\n]+)`/i)?.[1];
-  const line = text.match(/(?:^|\n)\s*(?:\$\s*|[-*]\s*)?((?:npm|npx|node|pnpm|yarn|bun)\s+[^\n`]+)/i)?.[1];
+  const inline = text.match(new RegExp(`\`(${SUPPORTED_CLI}\\s+[^\`\\n]+)\``, "i"))?.[1];
+  const line = text.match(new RegExp(`(?:^|\\n)\\s*(?:\\$\\s*|[-*]\\s*)?(${SUPPORTED_CLI}\\s+[^\\n\`]+)`, "i"))?.[1];
   return (inline || line)?.trim() || null;
 }
 
@@ -275,10 +278,15 @@ export async function handleTerminalMessage(opts: {
   history?: Array<{ role: string; content: string }>;
 }): Promise<{ reply: string; spoken: string; previewUrl?: string } | null> {
   const message = opts.message.trim();
-  const stop = /^(?:stop|hentikan|matikan|berhenti(?:kan)?)\s+(?:terminal|(?:dev\s+)?server|npm)(?:\s+(?:dong|cuy|ya))?[.!]?$/i.test(message);
-  const status = /^(?:cek|lihat|apa)?\s*status\s+(?:terminal|(?:dev\s+)?server|npm)(?:\s+(?:dong|cuy|ya))?[?!]?$/i.test(message);
-  let command = /^(?:npm|npx|node|pnpm|yarn|bun)\s+/i.test(message) ? message : null;
-  if (!command) command = message.match(/^(?:(?:tolong|coba)\s+)?(?:jalankan|jalanin|eksekusi|run)\s+(?:(?:di\s+)?terminal\s*:?\s*)?(`?(?:npm|npx|node|pnpm|yarn|bun)\s+[\s\S]+)$/i)?.[1] || null;
+  const stop = /^(?:stop|hentikan|matikan|berhenti(?:kan)?)\s+(?:terminal|(?:dev\s+)?server|npm|python)(?:\s+(?:dong|cuy|ya))?[.!]?$/i.test(message);
+  const status = /^(?:cek|lihat|apa)?\s*status\s+(?:terminal|(?:dev\s+)?server|npm|python)(?:\s+(?:dong|cuy|ya))?[?!]?$/i.test(message);
+  
+  const cliPattern = new RegExp(`^${SUPPORTED_CLI}\\s+`, "i");
+  let command = cliPattern.test(message) ? message : null;
+  if (!command) {
+    const triggerPattern = new RegExp(`^(?:(?:tolong|coba)\\s+)?(?:jalankan|jalanin|eksekusi|run)\\s+(?:(?:di\s+)?terminal\\s*:?\\s*)?(\`?${SUPPORTED_CLI}\\s+[\\s\\S]+)$`, "i");
+    command = message.match(triggerPattern)?.[1] || null;
+  }
   if (!command && /^(?:jalanin|jalankan|kerjakan|eksekusi)(?:\s+(?:dong|aja|sekarang|instalasinya|installnya|perintahnya|itu|cuy|ya))*[.!]?$/i.test(message)) {
     for (const item of (opts.history || []).slice(-8).reverse()) {
       if (!["user", "assistant"].includes(item.role) || typeof item.content !== "string") continue;

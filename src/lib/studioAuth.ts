@@ -19,6 +19,23 @@ export function studioSessionCookie(value: string, secure: boolean): string {
 export function hasStudioSession(req: Request): boolean {
   const pin = process.env.STUDIO_PIN?.trim();
   if (!pin) return false;
+
+  // 1. Cek Header Khusus: x-studio-pin
+  const headerPin = req.headers.get("x-studio-pin")?.trim();
+  if (headerPin && headerPin.length === pin.length) {
+    if (timingSafeEqual(Buffer.from(headerPin), Buffer.from(pin))) return true;
+  }
+
+  // 2. Cek Authorization Bearer Token
+  const authHeader = req.headers.get("authorization")?.trim();
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const bearer = authHeader.slice(7).trim();
+    if (bearer.length === pin.length && timingSafeEqual(Buffer.from(bearer), Buffer.from(pin))) {
+      return true;
+    }
+  }
+
+  // 3. Cek Cookie HMAC vox_studio_session
   const encoded = req.headers.get("cookie")?.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1);
   if (!encoded) return false;
   const [timestamp, supplied] = encoded.split(".");
@@ -26,4 +43,18 @@ export function hasStudioSession(req: Request): boolean {
   if (!Number.isFinite(age) || age < 0 || age > MAX_AGE_SECONDS * 1000 || !/^[a-f0-9]{64}$/.test(supplied || "")) return false;
   const expected = Buffer.from(signature(timestamp, pin), "hex");
   return timingSafeEqual(expected, Buffer.from(supplied, "hex"));
+}
+
+export function isLoopbackRequest(req: Request): boolean {
+  const host = req.headers.get("host") || "";
+  const forwardedFor = req.headers.get("x-forwarded-for") || "";
+  const hostname = host.split(":")[0]?.toLowerCase();
+  if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
+    if (forwardedFor) {
+      const clientIp = forwardedFor.split(",")[0]?.trim();
+      return clientIp === "127.0.0.1" || clientIp === "::1" || clientIp === "localhost";
+    }
+    return true;
+  }
+  return false;
 }

@@ -462,7 +462,7 @@ ${fileListStr}${moreText}
     const isGeneralOpenFolder = /\b(?:buka\s+folder(?:\s+project|\s+proyek)?|folder\s+(?:project|proyek)|lihat\s+folder|baca\s+folder)\b/i.test(trimmedMessage);
 
     if (projectDirectReply === null && (openFolderMatch || isGeneralOpenFolder)) {
-      let rawMatch = openFolderMatch && openFolderMatch[1] ? openFolderMatch[1].trim() : "";
+      const rawMatch = openFolderMatch && openFolderMatch[1] ? openFolderMatch[1].trim() : "";
       // Jika yang disebut adalah nama project aktif itu sendiri, maka target subfoldernya adalah root project ("")
       let targetSubfolder = "";
       if (rawMatch && !/^(?:project|proyek|ini|anjing|cuy|kontol|lu|bang|cok)$/i.test(rawMatch)) {
