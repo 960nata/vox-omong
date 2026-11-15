@@ -22,9 +22,14 @@
     "build": "next build",
     "prestart": "node scripts/start-local-tools.mjs",
     "start": "next start",
+    "freellmapi:test": "node scripts/test-native-freellm.cjs",
+    "freellmapi:check": "node scripts/test-freellmapi-integration.cjs",
     "lint": "eslint",
     "typecheck": "tsc --noEmit -p .",
-    "wa": "node scripts/wa-bot.mjs"
+    "wa": "node scripts/wa-bot.mjs",
+    "skills:list": "node scripts/skill-engine.mjs list",
+    "skills:install": "node scripts/skill-engine.mjs install-all",
+    "skills:info": "node scripts/skill-engine.mjs info"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

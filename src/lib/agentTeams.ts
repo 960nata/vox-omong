@@ -15,7 +15,7 @@ import { loadSkill } from "./skillLoader";
 import { openPage } from "./browser";
 import { extractWebUrl } from "./browserIntent";
 import { isMacChromeRunning, scrapeUserChromeTab } from "./macChromeBridge";
-import { createConversation } from "./storage";
+import { createConversation, addMessage as addStorageMessage } from "./storage";
 
 export function memberSkillGuide(skillId?: string): string {
   if (!skillId) return "";
@@ -152,7 +152,7 @@ const ROSTERS: Record<TeamKind, [string, string][]> = {
   custom: [["Ketua Divisi", "Lead Specialist"], ["Analis", "Research & Strategy Specialist"], ["Eksekutor", "Core Implementation Specialist"], ["Auditor", "Quality & Compliance Reviewer"]],
 };
 
-const TEAM_NAMES: Record<TeamKind, string> = {
+export const TEAM_NAMES: Record<TeamKind, string> = {
   developer: "Tim Developer",
   marketing: "Tim Marketing",
   creative: "Tim Kreatif",
@@ -242,7 +242,7 @@ export async function listSessions(): Promise<TeamSession[]> {
       if (!s.conversationId) {
         const conv = await createConversation(`Proyek: ${s.title}`, true);
         s.conversationId = conv.id;
-        await fs.writeFile(path.join(SESSIONS, file), JSON.stringify(s, null, 2), "utf8").catch(() => {});
+        await saveSession(s).catch(() => {});
       }
       sessions.push(s);
     } catch {}
@@ -361,12 +361,12 @@ Forum ini menyelaraskan visi lintas divisi, mengevaluasi PRD, dan melakukan voti
   return execTeam;
 }
 
-export async function analyzeProjectIdea(prompt: string, apiKey?: string): Promise<ProjectAnalysisResult> {
+export async function analyzeProjectIdea(prompt: string, apiKey?: string, folderContext?: string): Promise<ProjectAnalysisResult> {
   const cleanPrompt = prompt.trim();
-  if (!cleanPrompt) throw new TeamError("Ide proyek tidak boleh kosong");
+  if (!cleanPrompt && !folderContext) throw new TeamError("Ide proyek atau konteks folder tidak boleh kosong");
 
   const system = `Kamu adalah Chief AI Organization Architect.
-Tugasmu adalah menganalisis ide proyek/produk dari pengguna, lalu merekomendasikan struktur divisi AI yang paling relevan, alasan kuat mengapa divisi itu dibutuhkan, fokus awal tugasnya, serta draf seed PRD.
+Tugasmu adalah menganalisis ide proyek atau codebase dari pengguna, memetakan kelebihan & potensi, kekurangan/risiko kritis (blindspots), lalu merekomendasikan struktur divisi AI yang paling relevan, alasan kuat mengapa divisi itu dibutuhkan, fokus awal tugasnya, serta draf seed PRD.
 
 Berikut daftar kapabilitas divisi AI yang tersedia di sistem:
 1. "founder" (Tim Founder & Startup: Hendra CEO, Rani Market Research, Genta GTM, Dara Reality Check): Validasi pasar, riset kompetitor, target audiens (ICP), strategi monetisasi/pricing, penyusunan PRD.
@@ -378,23 +378,31 @@ Berikut daftar kapabilitas divisi AI yang tersedia di sistem:
 7. "career" (Tim Karier & Talent: Sandra Coach, Reza ATS, Tasya Matcher, Dimas Recruiter): Optimasi CV ATS, persiapan wawancara kerja, portofolio profesional, negosiasi kompensasi.
 
 Aturan Pemilihan Divisi:
-- Pilih hanya divisi yang benar-benar relevan dengan ide pengguna (biasanya 2 hingga 4 divisi utama).
-- Jika ada unsur software/aplikasi/web, WAJIB sertakan "developer".
-- Jika ini produk/bisnis/SaaS baru, WAJIB sertakan "founder" untuk merumuskan PRD.
-- Jika butuh promosi/viral/pemasaran ke audiens luas, sertakan "marketing".
-- Berikan alasan konkret yang spesifik menyebutkan aspek ide pengguna (bukan alasan umum generic).
+- Pilih hanya divisi yang benar-benar relevan dengan ide/kode pengguna (biasanya 1 hingga 4 divisi utama).
+- Jika ada unsur software/aplikasi/web, sertakan "developer".
+- Jika ini produk/bisnis/SaaS baru dari nol, sertakan "founder" untuk merumuskan PRD.
+- Jika ada unsur investasi/finansial/trading, sertakan "trading".
+- Berikan alasan konkret yang spesifik menyebutkan aspek ide/kode pengguna (bukan alasan generic).
 
 Keluarkan HANYA JSON valid sesuai format ini tanpa teks tambahan:
 {
   "projectTitle": "Judul Proyek Singkat & Menarik (3-6 kata)",
-  "executiveSummary": "1-2 kalimat ringkasan analisis potensi dan kebutuhan ide ini",
+  "executiveSummary": "1-2 kalimat ringkasan analisis potensi dan kebutuhan ide/kode ini",
+  "strengths": [
+    "Poin kelebihan / keunggulan kompetitif 1",
+    "Poin kelebihan / peluang pasar 2"
+  ],
+  "weaknesses": [
+    "Poin kekurangan / celah teknis atau bisnis yang perlu diperbaiki 1",
+    "Poin risiko regulasi / operasional yang harus dimitigasi 2"
+  ],
   "recommendedDivisions": [
     {
-      "kind": "founder",
-      "name": "Tim Founder & Startup",
+      "kind": "developer",
+      "name": "Tim Developer",
       "recommended": true,
-      "reason": "Alasan spesifik kenapa divisi ini dibutuhkan untuk ide ini...",
-      "initialFocus": "Tugas prioritas awal yang perlu dikerjakan divisi ini..."
+      "reason": "Alasan spesifik kenapa divisi ini dibutuhkan...",
+      "initialFocus": "Tugas prioritas awal yang perlu dikerjakan..."
     }
   ],
   "initialPrdSeed": {
@@ -406,11 +414,15 @@ Keluarkan HANYA JSON valid sesuai format ini tanpa teks tambahan:
 }`;
 
   try {
+    const promptText = `Analisis ide proyek/codebase ini dan susun blueprint analisisnya:\n"""\n${cleanPrompt || "Analisis codebase terlampir"}\n"""${
+      folderContext ? `\n\nKONTEKS STRUKTUR FOLDER & KODE TERLAMPIR:\n"""\n${folderContext.slice(0, 4000)}\n"""` : ""
+    }`;
+
     const res = await callLLM({
       apiKey,
       system,
-      prompt: `Analisis ide proyek ini dan susun blueprint organisasinya:\n"""\n${cleanPrompt}\n"""`,
-      maxTokens: 1400,
+      prompt: promptText,
+      maxTokens: 1800,
       fast: true,
       json: true,
       timeoutMs: 40_000,
@@ -420,6 +432,8 @@ Keluarkan HANYA JSON valid sesuai format ini tanpa teks tambahan:
 
     const parsed = JSON.parse(res.text) as ProjectAnalysisResult;
     if (parsed.projectTitle && Array.isArray(parsed.recommendedDivisions) && parsed.recommendedDivisions.length > 0) {
+      if (!Array.isArray(parsed.strengths)) parsed.strengths = [];
+      if (!Array.isArray(parsed.weaknesses)) parsed.weaknesses = [];
       return parsed;
     }
   } catch (err) {}
@@ -500,8 +514,25 @@ ${params.initialPrdSeed.monetizationIdea}
 *Dokumen ini disusun otomatis oleh AI Organization Architect dan siap dimatangkan oleh Tim Founder sebelum disidangkan ke Dewan Direksi.*`;
   }
 
-  // Buatkan percakapan chat baru (kosong) khusus untuk proyek ini
+  // Buatkan percakapan chat baru khusus untuk proyek ini
   const conv = await createConversation(`Proyek: ${title}`, true);
+
+  if (!params.divisions || params.divisions.length === 0) {
+    const openingMsg = `👋 **Selamat datang di Sesi Proyek Baru!**
+
+Proyek ini masih dalam tahap **Discovery & Ideation** (belum ada divisi tim yang dibentuk). Di ruang umum ini, mari kita diskusikan konsep proyekmu terlebih dahulu:
+
+1. 💡 **Ceritakan ide produk atau masalah** yang ingin kamu selesaikan (target pengguna, fitur utama, dan arah pengembangannya), atau
+2. 📁 **Lampirkan folder proyek dari komputermu** jika kamu sudah memiliki codebase/proyek awal.
+
+Setelah itu, aku akan membedah:
+- 🎯 **Ringkasan Konsep & Solusi Utama**
+- 🚀 **Kelebihan & Potensi Pasar**
+- ⚠️ **Kekurangan, Risiko & Blindspots**
+- 👥 **Rekomendasi Struktur Tim Divisi AI** (Kamu bebas memilih: mau tim lengkap dengan Dewan Direksi, atau cukup 1 divisi saja seperti Tim Developer jika ingin langsung fokus ngoding!)`;
+
+    await addStorageMessage(conv.id, { role: "assistant", content: openingMsg });
+  }
 
   const session: TeamSession = {
     id,
@@ -692,6 +723,7 @@ function errorText(error: unknown, key?: string) {
 function mapAiModeToPrefer(aiMode?: string): string[] | undefined {
   if (!aiMode) return undefined;
   const m = aiMode.toLowerCase();
+  if (m.startsWith("freellmapi")) return [m, "freellmapi-auto", "deepseek"];
   if (m.includes("user-private") || m.includes("private") || m.includes("aigw")) return ["user-private", "deepseek"];
   if (m.includes("sonnet-5.5")) return ["claude-sonnet-5.5", "sonnet"];
   if (m.includes("sonnet")) return ["sonnet", "claude-sonnet-5.5", "claude-sonnet-4.6"];
@@ -1661,7 +1693,9 @@ async function execute(teamId: string, apiKey?: string, aiMode?: string) {
     const output = `# ${latest.name}\n\nBrief: ${task.message}\n\n## ${discussion && !discussion.summarize ? "Hasil Diskusi" : "Laporan Ketua"}\n\n${summary}\n\n${latest.members.filter((member) => member.report).map((member) => `## ${member.name} — ${member.role}\n\n${member.report}`).join("\n\n")}`;
     const artifact = path.join(PROJECTS, team.projectId, "documents", `team-${task.id}.md`);
     await fs.mkdir(path.dirname(artifact), { recursive: true });
-    await fs.writeFile(artifact, output, "utf8");
+    const tmpArt = `${artifact}.${process.pid}.${Date.now()}-${Math.random().toString(36).substring(2, 6)}.tmp`;
+    await fs.writeFile(tmpArt, output, "utf8");
+    await fs.rename(tmpArt, artifact);
     await update(teamId, (entry, current) => {
       const failed = entry.members.filter((member) => member.status === "failed").length;
       const delivered = entry.members.filter((member) => member.status === "done").length;

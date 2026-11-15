@@ -11,6 +11,17 @@ const DIR = path.join(process.cwd(), "skills");
 const NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const cache = new Map<string, string>();
 
+/** Bersihkan cache memori untuk file skill tertentu atau seluruhnya. */
+export function clearSkillCache(name?: string) {
+  if (name) {
+    for (const key of cache.keys()) {
+      if (key.startsWith(`${name}/`)) cache.delete(key);
+    }
+  } else {
+    cache.clear();
+  }
+}
+
 function readFile(name: string, file: string): string {
   if (!NAME.test(name) || !/^[\w.-]+$/.test(file)) return "";
   const key = `${name}/${file}`;
@@ -26,9 +37,25 @@ function readFile(name: string, file: string): string {
 
 const stripFrontmatter = (s: string) => s.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
 
+/** Cek apakah skill terpasang di folder skills/ */
+export function hasSkill(name: string): boolean {
+  if (!NAME.test(name)) return false;
+  return Boolean(loadSkill(name));
+}
+
 /** Isi SKILL.md tanpa frontmatter ("" bila skill tidak ada). */
 export function loadSkill(name: string, file = "SKILL.md"): string {
   return stripFrontmatter(readFile(name, file));
+}
+
+/** Ambil metadata mentah dari frontmatter SKILL.md */
+export function loadSkillMetadata(name: string, file = "SKILL.md"): { name: string; description: string; license?: string; repo?: string } | null {
+  const raw = readFile(name, file);
+  if (!raw) return null;
+  const desc = raw.match(/^description:\s*(.+)$/m)?.[1]?.trim() || `Skill ${name}`;
+  const license = raw.match(/^license:\s*(.+)$/m)?.[1]?.trim();
+  const repo = raw.match(/^repo:\s*(.+)$/m)?.[1]?.trim();
+  return { name, description: desc, license, repo };
 }
 
 /** Ambil satu bagian berdasarkan judul (## atau ###) sampai judul setingkat/lebih tinggi berikutnya. */

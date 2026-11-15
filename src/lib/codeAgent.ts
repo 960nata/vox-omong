@@ -10,6 +10,7 @@ import { readOpenAICompletion } from "./llmStream";
 import { recordLlmUsage } from "./tokenTracker";
 import { MODEL_CREDIT_MULTIPLIERS } from "./tokenPricing";
 import type { AIMode } from "./types";
+import { callNativeFreeLLM } from "./freellmEngine";
 
 /**
  * Code agent: menghasilkan / mengedit website satu-file (HTML + Tailwind CDN + JS)
@@ -269,6 +270,39 @@ export async function callLLM({
       errors.push("Gateway Pribadi: respon kosong, failover ke router...");
     } catch (err) {
       errors.push(`Gateway Pribadi: ${(err as Error).message}, failover ke router...`);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // 2B. FreeLLMAPI (100% Gratis - Zero Cost Local Aggregator)
+  // -------------------------------------------------------------
+  const freeLlmUrl = process.env.FREELLMAPI_URL || "http://127.0.0.1:3005/v1";
+  const freeLlmKey = process.env.FREELLMAPI_KEY || "freellmapi-local-key";
+  const isFreeLlmRequested = Boolean(
+    (apiKey && (apiKey.startsWith("freellmapi") || apiKey.includes(":free"))) ||
+    (prefer && prefer.some((x) => x.toLowerCase().startsWith("freellmapi") || x.toLowerCase().includes("free-tier")))
+  );
+
+  if (isFreeLlmRequested) {
+    try {
+      const prefMatch = prefer?.find((x) => x.toLowerCase().startsWith("freellmapi-"));
+      const model = prefMatch || "freellmapi-auto";
+      const freeRes = await callNativeFreeLLM({
+        system,
+        prompt,
+        model,
+        maxTokens,
+        temperature: temp,
+        json,
+        timeoutMs,
+      });
+
+      if (freeRes.text && freeRes.text.trim()) {
+        return done(freeRes.text.trim(), freeRes.model);
+      }
+      errors.push("FreeLLMAPI Native: respons kosong, failover...");
+    } catch (err: any) {
+      errors.push(`FreeLLMAPI Native: ${err.message}, failover...`);
     }
   }
 
@@ -757,6 +791,14 @@ export function getRolePrefer(aiMode?: AIMode): Record<string, string[]> {
       developer: ["kimi-k2.7-code", "deepseek-v4.1-flash"],
       reviewer: ["deepseek", "deepseek-v4.1-flash"],
       revisi: ["kimi-k3", "deepseek-v4.1-flash"],
+    };
+  }
+  if (aiMode?.startsWith("freellmapi")) {
+    return {
+      arsitek: [aiMode, "freellmapi-auto", "deepseek-v4.1-flash"],
+      developer: [aiMode, "freellmapi-auto", "deepseek-v4.1-flash"],
+      reviewer: [aiMode, "freellmapi-auto", "deepseek-v4.1-flash"],
+      revisi: [aiMode, "freellmapi-auto", "deepseek-v4.1-flash"],
     };
   }
   if (aiMode === "user-private") {

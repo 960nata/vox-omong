@@ -336,9 +336,10 @@ export function AudioControls({
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "Gagal membuka folder proyek");
 
+      const projDisplayName = data.name || data.projectName || data.projectId || pId;
       setAttachedItem({
         type: "folder",
-        name: data.projectId || pId,
+        name: projDisplayName,
         itemCount: data.itemCount || (data.files ? data.files.length : 0),
         size: data.size || 0,
         files: data.files || [],
@@ -346,8 +347,8 @@ export function AudioControls({
       });
       setAttachedImage(null);
 
-      if (!inputText.trim()) {
-        setInputText(`Tolong baca dan analisis seluruh struktur dan kode dalam folder project "${pId}".`);
+      if (!inputText.trim() || inputText.includes("folder project \"session-")) {
+        setInputText(`Tolong baca dan analisis seluruh struktur dan kode dalam folder project "${projDisplayName}".`);
       }
     } catch (err: any) {
       setUploadError(err.message || "Gagal membuka folder");
@@ -406,7 +407,7 @@ export function AudioControls({
         });
         setAttachedImage(null);
 
-        if (!inputText.trim()) {
+        if (!inputText.trim() || inputText.includes("folder project \"session-") || inputText.includes("Tolong baca dan analisis")) {
           setInputText(`Tolong baca dan analisis folder "${folderName}" dari Mac ini.`);
         }
       } catch (err: any) {

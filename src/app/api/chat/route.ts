@@ -22,7 +22,8 @@ import type { ArtifactItem } from "@/lib/types";
 import { UNSUPPORTED_STACK_RE } from "@/lib/scaffold";
 import { detectBrowserTask, runBrowserTask } from "@/lib/browserAgent";
 import { browserSessionUrl } from "@/lib/browserSessions";
-import { handleTeamMessage } from "@/lib/agentTeams";
+import { handleTeamMessage, getSession, saveSession, listTeams, createTeam, syncExecutiveBoard, analyzeProjectIdea, TEAM_NAMES } from "@/lib/agentTeams";
+import type { TeamKind } from "@/lib/teamTypes";
 import { detectWebsiteScan, scanWebsite, type WebsiteReference } from "@/lib/websiteScanner";
 import { handleTerminalMessage } from "@/lib/terminalRuntime";
 import { handleEmailMessage } from "@/lib/email";
@@ -425,17 +426,55 @@ ${modelRows ? `📊 **Rincian per Model:**\n${modelRows}\n\n` : ""}_💡 Catatan
       }
     }
 
-    // B2. Check for "buka folder project" / "baca folder project" / "buka folder [nama]" / "lihat isi folder"
-    const openFolderMatch = trimmedMessage.match(/\b(?:buka|lihat|cek|tampilkan|daftar|isi|baca)\s+folder(?:\s+(?:project|proyek))?(?:\s+([a-zA-Z0-9_\-\/\.]+))?/i);
+    // B1-Attached: Jika user melampirkan folder atau file (attachedItem), utamakan memproses lampiran tersebut
+    if (projectDirectReply === null && attachedItem) {
+      if (attachedItem.type === "folder") {
+        const fileListStr = (attachedItem.files || [])
+          .slice(0, 35)
+          .map((f: any) => `- 📄 ${f.path} (${f.size > 1024 ? `${(f.size / 1024).toFixed(1)} KB` : `${f.size} B`})`)
+          .join("\n");
+        const moreCount = (attachedItem.itemCount || (attachedItem.files?.length || 0)) - 35;
+        const moreText = moreCount > 0 ? `\n- ... dan ${moreCount} file lainnya` : "";
+
+        projectDirectReply = `📂 **Folder \`${attachedItem.name}\` (${attachedItem.itemCount || 0} file) berhasil dibaca dan dimuat ke sistem!**
+
+**Struktur & Sampel File:**
+\`\`\`
+${fileListStr}${moreText}
+\`\`\`${attachedItem.textSnippet ? `\n\n🔍 **Cuplikan Isi Kode Terpilih:**\n\`\`\`\n${attachedItem.textSnippet.slice(0, 3500)}\n\`\`\`` : ""}
+
+⚡ **AI Siap Mengolah & Menganalisis:**
+- Arsitektur dan struktur folder sudah dipetakan (${attachedItem.itemCount || 0} file total).
+- Kamu bisa langsung tanya logika kode, minta review arsitektur, atau minta dibuatkan fitur baru berbasis folder ini!`;
+      } else if (
+        !trimmedMessage ||
+        /\b(?:baca|analisis|cek|lihat|tampilkan|periksa|review|apa\s+isi)\b/i.test(trimmedMessage) ||
+        trimmedMessage.includes("Tolong baca dan analisis file") ||
+        trimmedMessage.includes("Tolong periksa dan proses file")
+      ) {
+        const ext = path.extname(attachedItem.name).replace(".", "") || "text";
+        projectDirectReply = `Berikut isi dan analisis dari file **${attachedItem.name}** (${attachedItem.size ? (attachedItem.size > 1024 ? `${(attachedItem.size / 1024).toFixed(1)} KB` : `${attachedItem.size} B`) : "File Lokal"}):\n\n\`\`\`${ext}\n${(attachedItem.textSnippet || "").slice(0, 10000)}\n\`\`\`\n\nAI siap memproses file ini di lokal. Mau dimodifikasi, disimpan ke project, atau dibuatkan fitur baru?`;
+      }
+    }
+
+    // B2. Check for "buka folder project" / "baca folder project" / "buka folder [nama]" / "lihat isi folder" (hanya jika belum diproses oleh attachedItem)
+    const openFolderMatch = trimmedMessage.match(/\b(?:buka|lihat|cek|tampilkan|daftar|isi|baca)\s+folder(?:\s+(?:project|proyek))?(?:\s+["']?([a-zA-Z0-9_\-\/\.]+)["']?)?/i);
     const isGeneralOpenFolder = /\b(?:buka\s+folder(?:\s+project|\s+proyek)?|folder\s+(?:project|proyek)|lihat\s+folder|baca\s+folder)\b/i.test(trimmedMessage);
 
     if (projectDirectReply === null && (openFolderMatch || isGeneralOpenFolder)) {
-      const targetSubfolder = openFolderMatch && openFolderMatch[1] && !/^(?:project|proyek|ini|anjing|cuy|kontol|lu|bang|cok)$/i.test(openFolderMatch[1])
-        ? openFolderMatch[1].trim()
-        : "";
+      let rawMatch = openFolderMatch && openFolderMatch[1] ? openFolderMatch[1].trim() : "";
+      // Jika yang disebut adalah nama project aktif itu sendiri, maka target subfoldernya adalah root project ("")
+      let targetSubfolder = "";
+      if (rawMatch && !/^(?:project|proyek|ini|anjing|cuy|kontol|lu|bang|cok)$/i.test(rawMatch)) {
+        if (rawMatch !== activeProjectId && rawMatch !== slugify(activeProjectId) && !rawMatch.startsWith("session-")) {
+          targetSubfolder = rawMatch;
+        }
+      }
 
       try {
         const { target, safeId } = getSafeProjectPath(activeProjectId, targetSubfolder);
+        // Pastikan direktori project dibuat jika belum ada agar tidak melempar ENOENT
+        await fs.mkdir(target, { recursive: true });
 
         const entries = await fs.readdir(target, { withFileTypes: true });
         const dirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith(".")).map((e) => `📁 ${e.name}/`);
@@ -459,7 +498,7 @@ ${modelRows ? `📊 **Rincian per Model:**\n${modelRows}\n\n` : ""}_💡 Catatan
 - **CSS & JS**: Internal terintegrasi siap jalan`;
         }
 
-        const listContent = [...dirs, ...files].join("\n") || "(Folder kosong)";
+        const listContent = [...dirs, ...files].join("\n") || "(Folder ini masih kosong — belum ada file)";
         projectDirectReply = `📂 **Folder project \`${safeId}${targetSubfolder ? `/${targetSubfolder}` : ""}\` berhasil dibaca ke sistem!**
 
 **Daftar File & Folder di Disk Lokal:**
@@ -475,17 +514,6 @@ Kamu bisa langsung minta:
       } catch (err: any) {
         projectDirectReply = `Gagal membaca folder project: ${err.message}`;
       }
-    }
-
-    // B3. Check jika user melampirkan file (attachedItem) dan ingin membaca/melihatnya langsung
-    if (projectDirectReply === null && attachedItem && (
-      !trimmedMessage ||
-      /\b(?:baca|analisis|cek|lihat|tampilkan|periksa|review|apa\s+isi)\b/i.test(trimmedMessage) ||
-      trimmedMessage.includes("Tolong baca dan analisis file") ||
-      trimmedMessage.includes("Tolong periksa dan proses file")
-    )) {
-      const ext = path.extname(attachedItem.name).replace(".", "") || "text";
-      projectDirectReply = `Berikut isi dan analisis dari file **${attachedItem.name}** (${attachedItem.size ? (attachedItem.size > 1024 ? `${(attachedItem.size / 1024).toFixed(1)} KB` : `${attachedItem.size} B`) : "File Lokal"}):\n\n\`\`\`${ext}\n${(attachedItem.textSnippet || "").slice(0, 10000)}\n\`\`\`\n\nAI siap memproses file ini di lokal. Mau dimodifikasi, disimpan ke project, atau dibuatkan fitur baru?`;
     }
 
     // C. Check for "buat file [nama]" inside user's active project
@@ -573,6 +601,109 @@ AI bisa langsung membaca dan mengedit bagian mana pun dari kode ini di lokal, mi
     // D3. Check for "edit file [nama]" / "ubah file [nama]" / "edit website lokal"
     const editFileMatch = trimmedMessage.match(/\b(?:edit|ubah|ganti|modifikasi|update|perbarui)\s+(?:isi\s+)?file\s+([a-zA-Z0-9_\-\/\.]+)(?:\s+(?:isinya|menjadi|jadi|dengan|untuk|agar|tolong)\s+([\s\S]+))?/i);
     const editWebsiteMatch = !editFileMatch && /\b(?:edit|ubah|ganti|modifikasi)\s+(?:project\s+)?(?:website|web|situs|landing\s+page)\s+(?:di\s+lokal\s+)?(?:ini\s+)?([\s\S]*)/i.test(trimmedMessage);
+
+    // D4. Check untuk Konfirmasi Pembentukan Tim ("bentuk tim rekomendasi" / "bentuk tim developer saja")
+    const isTeamSetupRequest =
+      /\b(?:bentuk|buat|pilih|aktifkan|setup)\s+(?:semua\s+)?(?:tim|divisi)\b/i.test(trimmedMessage) ||
+      /\b(?:tim\s+rekomendasi|rekomendasi\s+tim|semua\s+tim|semua\s+divisi)\b/i.test(trimmedMessage) ||
+      /\b(?:hanya\s+)?(?:tim|divisi)\s+(developer|marketing|founder|trading|creative|research|career|custom)(?:\s+saja|\s+aja)?\b/i.test(trimmedMessage);
+
+    if (projectDirectReply === null && isTeamSetupRequest && activeProjectId) {
+      const session = await getSession(activeProjectId);
+      if (session) {
+        const singleMatch = trimmedMessage.match(/\b(?:hanya\s+)?(?:tim|divisi)\s+(developer|marketing|founder|trading|creative|research|career|custom)(?:\s+saja|\s+aja)?\b/i);
+        if (singleMatch && singleMatch[1]) {
+          const kind = singleMatch[1].toLowerCase() as TeamKind;
+          const existing = await listTeams(activeProjectId);
+          if (!existing.some(t => t.kind === kind)) {
+            await createTeam(activeProjectId, kind);
+          }
+          session.pipelineStage = "development";
+          session.updatedAt = new Date().toISOString();
+          await saveSession(session);
+          projectDirectReply = `✅ **1 Divisi Tunggal Berhasil Diaktifkan: ${TEAM_NAMES[kind] || kind}!**\n\nDivisi ini siap bekerja secara terfokus untuk proyek **${session.title}**. Karena kamu memilih hanya 1 divisi, tim ini dapat langsung mengeksekusi instruksi tanpa birokrasi sidang Dewan Direksi.\n\nKamu bisa langsung masuk ke grup tim di panel kiri (Riwayat & Divisi) atau berikan instruksi tugas di sini!`;
+        } else {
+          const recs = session.recommendedDivisions || ["founder", "developer", "marketing"];
+          const existing = await listTeams(activeProjectId);
+          for (const k of recs) {
+            if (k !== "executive" && !existing.some(t => t.kind === k)) {
+              await createTeam(activeProjectId, k);
+            }
+          }
+          const all = await listTeams(activeProjectId);
+          if (all.filter(t => t.kind !== "executive").length >= 2) {
+            await syncExecutiveBoard(activeProjectId);
+          }
+          session.pipelineStage = "prd";
+          session.updatedAt = new Date().toISOString();
+          await saveSession(session);
+          projectDirectReply = `🏛️ **Tim Rekomendasi Berhasil Dibentuk!**\n\nDivisi aktif: ${all.filter(t => t.kind !== "executive").map(t => `**${t.name}**`).join(", ")}.\n\n**Dewan Direksi (Executive Board)** juga telah diaktifkan untuk menyelaraskan visi dan memimpin voting konsensus sebelum eksekusi dimulai. Silakan cek menu Riwayat & Divisi di panel samping!`;
+        }
+      }
+    }
+
+    // D5. Check untuk Analisis Proyek / Codebase di Tahap Ideation (Belum Ada Tim Terbentuk)
+    if (projectDirectReply === null && activeProjectId) {
+      const session = await getSession(activeProjectId);
+      if (session && (session.pipelineStage === "ideation" || (await listTeams(activeProjectId)).filter(t => t.kind !== "executive").length === 0)) {
+        const isProjectBriefOrFolder =
+          Boolean(attachedItem && attachedItem.type === "folder") ||
+          /\b(proyek|project|ide|produk|bisnis|aplikasi|platform|website|buatkan|bikin|kembangkan|analisis|bedah|konsep|investasi)\b/i.test(trimmedMessage);
+
+        if (isProjectBriefOrFolder && (trimmedMessage.length >= 15 || attachedItem)) {
+          const folderSnippet = attachedItem?.textSnippet || (attachedItem?.files ? `Daftar file: ${(attachedItem.files || []).slice(0, 30).map((f: any) => f.path).join(", ")}` : undefined);
+          const analysis = await analyzeProjectIdea(trimmedMessage, apiKey, folderSnippet);
+
+          if (analysis.projectTitle && analysis.projectTitle !== "Proyek Inovasi Baru" && !session.title.includes(":")) {
+            session.title = analysis.projectTitle;
+          }
+          session.recommendedDivisions = analysis.recommendedDivisions.map(d => d.kind);
+          session.updatedAt = new Date().toISOString();
+          await saveSession(session);
+
+          const strengthsText = (analysis.strengths && analysis.strengths.length > 0)
+            ? analysis.strengths.map(s => `• 🚀 ${s}`).join("\n")
+            : "• 🚀 Potensi pasar yang jelas dan relevan dengan kebutuhan pengguna saat ini.\n• 🚀 Alur kerja yang dapat diotomasi dengan agen AI.";
+
+          const weaknessesText = (analysis.weaknesses && analysis.weaknesses.length > 0)
+            ? analysis.weaknesses.map(w => `• ⚠️ ${w}`).join("\n")
+            : "• ⚠️ Perlu validasi batasan regulasi dan kepatuhan hukum.\n• ⚠️ Kesiapan arsitektur teknis dan mitigasi risiko transaksi.";
+
+          const divisionsText = analysis.recommendedDivisions.map((d, i) => `${i + 1}. **${d.name}** (\`${d.kind}\`)\n   - *Peran*: ${d.reason}\n   - *Fokus Awal*: ${d.initialFocus}`).join("\n\n");
+
+          projectDirectReply = `📊 **Hasil Analisis Proyek: ${session.title}**
+
+${analysis.executiveSummary}
+
+---
+
+### 💡 Kelebihan & Peluang Utama (Strengths)
+${strengthsText}
+
+### ⚠️ Kekurangan & Risiko Kritis (Weaknesses & Risks)
+${weaknessesText}
+
+---
+
+### 👥 Rekomendasi Struktur Tim & Divisi AI
+${divisionsText}
+
+---
+
+🎯 **Pilihan Mode Pengembangan:**
+1. **Opsi A: Bentuk Tim Lengkap (Multi-Divisi + Dewan Direksi)**
+   Cocok untuk eksekusi menyeluruh dari PRD, arsitektur teknis, hingga pemasaran. Dewan Direksi akan aktif mengawal konsensus antar ketua divisi.
+   👉 *Ketik: **"bentuk tim rekomendasi"***
+
+2. **Opsi B: Bentuk Hanya 1 Divisi Tunggal**
+   Jika kamu ingin langsung fokus pada implementasi teknis (misal hanya Tim Developer), tim akan bekerja terfokus tanpa perlu sidang Dewan Direksi.
+   👉 *Ketik: **"bentuk tim developer saja"*** (atau divisi lain yang kamu inginkan)
+
+3. **Opsi C: Kustomisasi Sendiri**
+   Pilih atau tambahkan divisi manual kapan saja lewat tombol **Riwayat & Divisi** di panel kiri.`;
+        }
+      }
+    }
 
     if (projectDirectReply === null && (editFileMatch || editWebsiteMatch)) {
       const rawTargetFile = editFileMatch ? editFileMatch[1].trim() : "index.html";

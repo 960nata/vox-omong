@@ -75,6 +75,14 @@ export const MODEL_CREDIT_MULTIPLIERS: Record<string, { in: number; out: number 
   "step-3.7-flash:free": { in: 0, out: 0 },
   "user-private": { in: 0, out: 0 },
 
+  // FreeLLMAPI (100% Gratis - 0 Kredit)
+  "freellmapi": { in: 0, out: 0 },
+  "freellmapi-auto": { in: 0, out: 0 },
+  "freellmapi-groq": { in: 0, out: 0 },
+  "freellmapi-gemini": { in: 0, out: 0 },
+  "freellmapi-cerebras": { in: 0, out: 0 },
+  "freellmapi-mistral": { in: 0, out: 0 },
+
   // Google Direct API
   "gemini-2.5-flash": { in: 0, out: 0 },
   "gemini-1.5-flash": { in: 0, out: 0 },
@@ -247,7 +255,7 @@ export interface UsageRecord {
   id: string;
   timestamp: string;
   model: string;
-  source: "classai_prime" | "classai_premium" | "gemini_direct" | "custom_local";
+  source: "classai_prime" | "classai_premium" | "gemini_direct" | "custom_local" | "freellmapi";
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -280,6 +288,11 @@ export function calculateEstimatedCredits(
   source?: UsageRecord["source"]
 ): number {
   const norm = model.toLowerCase();
+  // 100% Bebas Biaya (0 Kredit) untuk FreeLLMAPI dan model berlabel free
+  if (source === "freellmapi" || norm.startsWith("freellmapi") || norm.includes(":free")) {
+    return 0;
+  }
+
   let mult = { in: 8.3, out: 30.2 }; // default Prime
 
   if (source === "classai_premium") {

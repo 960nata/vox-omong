@@ -50,6 +50,12 @@ const AI_MODES: Array<{
   name: string;
   Icon: React.ElementType;
 }> = [
+  // 🎁 100% GRATIS (FreeLLMAPI - 0 Kredit)
+  { id: "freellmapi-auto", name: "FreeLLMAPI Auto", Icon: Sparkles },
+  { id: "freellmapi-groq", name: "FreeLLMAPI Groq LPU", Icon: Zap },
+  { id: "freellmapi-cerebras", name: "FreeLLMAPI Cerebras", Icon: Cpu },
+  { id: "freellmapi-gemini", name: "FreeLLMAPI Gemini", Icon: Feather },
+
   // Cepat & Daily
   { id: "flash", name: "DeepSeek Flash", Icon: Feather },
   { id: "user-private", name: "Gateway Pribadi (aigw)", Icon: Shield },

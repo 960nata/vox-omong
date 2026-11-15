@@ -1,0 +1,93 @@
+---
+name: apple-bridges
+description: Panduan keahlian apple-bridges dari repo more-io/claude-apple-bridges
+repo: more-io/claude-apple-bridges
+license: MIT
+---
+
+# Apple Bridges
+
+Swift CLI tools at `~/.claude/` that give Claude Code native access to Apple apps on macOS.
+
+## Quick Reference
+
+| Bridge | Binary | Purpose |
+|--------|--------|---------|
+| [reminders-bridge](reminders-bridge.md) | `~/.claude/reminders-bridge` | Manage Apple Reminders — lists, items, due dates, repeats, search |
+| [calendar-bridge](calendar-bridge.md) | `~/.claude/calendar-bridge` | Read/write Apple Calendar — events, free slots, scheduling |
+| [contacts-bridge](contacts-bridge.md) | `~/.claude/contacts-bridge` | Search/manage Apple Contacts — lookup, birthdays |
+| [notes-bridge](notes-bridge.md) | `~/.claude/notes-bridge` | Read/write Apple Notes — create, search, append |
+| [mail-bridge](mail-bridge.md) | `~/.claude/mail-bridge` | Read/send Apple Mail — inbox, unread, compose |
+| [tmux-bridge](tmux-bridge.md) | `~/.claude/tmux-bridge` | Read/write tmux sessions — panes, snapshots, send keystrokes |
+| [messages-bridge](messages-bridge.md) | `~/.claude/messages-bridge` | Read/send Apple Messages — chats, unread, search, send text and files |
+
+**Read the detail file for the bridge you need** — each contains full command syntax, all parameters, and usage examples.
+
+## General Patterns
+
+### CLI Syntax
+
+All bridges follow the same pattern:
+
+```bash
+~/.claude/<bridge-name> <command> [arguments...]
+```
+
+In Claude Desktop (via `apple-bridges-mcp`), each bridge is two tools: `<bridge>_read` for commands that only read and `<bridge>_write` for commands that change data, such as `reminders_read` and `reminders_write`. Pass the same arguments as the `args` array, one element per argument, starting with the command. A read tool refuses a flag that would write (`mail read --mark-read`), and `tmux_write` types into any pane, so it is never a tool to allow for a whole session.
+
+### Quoting
+
+Arguments with spaces must be quoted:
+
+```bash
+~/.claude/reminders-bridge add "Shopping List" "Buy milk" "From the organic store"
+~/.claude/calendar-bridge add "Work" "Team Meeting" "2026-03-01 10:00" "2026-03-01 11:00"
+```
+
+### Destructive Operations
+
+Delete commands use a **dry-run by default** pattern — they show what would be deleted without the `--force` flag:
+
+```bash
+# Dry run (safe preview)
+~/.claude/reminders-bridge delete "Work" "Old task"
+
+# Actually delete
+~/.claude/reminders-bridge delete "Work" "Old task" --force
+```
+
+This applies to: `reminders-bridge delete`, `calendar-bridge delete`, `contacts-bridge delete`, `notes-bridge delete`, `mail-bridge delete`.
+
+### Permissions
+
+Each bridge requires macOS permission on first use:
+
+| Bridge | Permission | Settings Path |
+|--------|-----------|---------------|
+| reminders-bridge | Reminders | Privacy & Security > Reminders |
+| calendar-bridge | Calendars | Privacy & Security > Calendars |
+| contacts-bridge | Contacts | Privacy & Security > Contacts |
+| notes-bridge | Automation (Notes.app) | Privacy & Security > Automation |
+| mail-bridge | Automation (Mail.app) | Privacy & Security > Automation |
+| tmux-bridge | None (uses tmux CLI) | — |
+| messages-bridge | Full Disk Access (read) + Automation (Messages.app) | Privacy & Security > Full Disk Access / Automation |
+
+### Allowed Tools Configuration
+
+Add to `.claude/settings.local.json`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(~/.claude/reminders-bridge:*)",
+      "Bash(~/.claude/calendar-bridge:*)",
+      "Bash(~/.claude/contacts-bridge:*)",
+      "Bash(~/.claude/notes-bridge:*)",
+      "Bash(~/.claude/mail-bridge:*)",
+      "Bash(~/.claude/tmux-bridge:*)",
+      "Bash(~/.claude/messages-bridge:*)"
+    ]
+  }
+}
+```

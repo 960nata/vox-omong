@@ -69,6 +69,44 @@ const AI_MODES_INFO: Array<{
   category: "all" | "auto" | "flagship" | "fast" | "free" | "private";
   Icon: React.ElementType;
 }> = [
+  // 0. FREELLMAPI LOCAL HUB (100% GRATIS)
+  {
+    id: "freellmapi-auto",
+    name: "FreeLLMAPI Auto-Route",
+    badge: "100% GRATIS",
+    desc: "Otomatis merutekan ke provider gratis yang paling longgar (Groq, Cerebras, Gemini, Mistral).",
+    costNote: "0 kredit (Rp 0 - Bebas Biaya)",
+    category: "free",
+    Icon: Sparkles,
+  },
+  {
+    id: "freellmapi-groq",
+    name: "FreeLLMAPI Groq (Llama 3.3)",
+    badge: "GROQ LPU KILAT",
+    desc: "Kecepatan 500+ token/detik via Groq LPU, ideal untuk voice chat dan respons instan.",
+    costNote: "0 kredit (Rp 0 - Kuota Resmi Groq)",
+    category: "free",
+    Icon: Zap,
+  },
+  {
+    id: "freellmapi-cerebras",
+    name: "FreeLLMAPI Cerebras",
+    badge: "CEREBRAS ULTRA FAST",
+    desc: "Akselerator Cerebras super cepat dengan latensi terendah untuk obrolan suara.",
+    costNote: "0 kredit (Rp 0 - Kuota Resmi Cerebras)",
+    category: "free",
+    Icon: Cpu,
+  },
+  {
+    id: "freellmapi-gemini",
+    name: "FreeLLMAPI Gemini Flash",
+    badge: "GOOGLE AI STUDIO",
+    desc: "Konteks besar 1 Juta token dan multimodal gratis dari Google AI Studio.",
+    costNote: "0 kredit (Rp 0 - Kuota Resmi Google)",
+    category: "free",
+    Icon: Feather,
+  },
+
   // 1. AUTO ROUTERS
   {
     id: "coding-china-auto",
@@ -619,10 +657,10 @@ export function SettingsModal({
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {[
                     { id: "all", label: "Semua (25+ Model)" },
-                    { id: "auto", label: "🤖 Auto Failover" },
-                    { id: "flagship", label: "👑 Flagship & Sultan" },
+                    { id: "free", label: "🎁 FreeLLMAPI (100% Gratis - Rp 0)" },
+                    { id: "flagship", label: "💎 AIGW Sultan (Potong Saldo)" },
                     { id: "fast", label: "⚡ Cepat & Coding" },
-                    { id: "free", label: "🎁 100% Gratis & Grant" },
+                    { id: "auto", label: "🤖 Auto Failover" },
                     { id: "private", label: "🛡️ Server Pribadi" },
                   ].map((cat) => (
                     <button

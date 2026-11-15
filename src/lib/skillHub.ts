@@ -167,10 +167,39 @@ async function readSkill(repo: string, file: string): Promise<{ body: string; ex
 
 export type ResolvedSkill = { skill: CatalogSkill; name: string; file: string; url: string; body: string };
 
-/** Skill yang cocok + isinya. Kandidat file dicoba berurutan, jadi satu file hilang/404 tidak membuat skill mati. */
+/** Skill yang cocok + isinya. Prioritaskan folder lokal skills/ sebelum fallback ke GitHub. */
 export async function resolveSkill(message: string): Promise<ResolvedSkill | null> {
+  const named = message.match(/\b(?:pakai|pake|gunakan|use)\s+skill\s+([\w./-]+)/i)?.[1]?.toLowerCase();
+  if (named) {
+    const cleanNamed = named.replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+    const localBody = loadSkill(cleanNamed);
+    if (localBody && localBody.length > 40) {
+      return {
+        skill: { repo: `local/${cleanNamed}`, skill: cleanNamed, local: true, desc: `Local skill ${cleanNamed}`, kw: cleanNamed },
+        name: cleanNamed,
+        file: `skills/${cleanNamed}/SKILL.md`,
+        url: "",
+        body: localBody,
+      };
+    }
+  }
+
   const s = matchSkill(message);
   if (!s) return null;
+
+  // Prioritas cek fisik lokal jika folder sudah terpasang di skills/<skill>/SKILL.md
+  const targetSkillName = (s.skill || s.repo.split("/")[1]).toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-");
+  const localBody = loadSkill(targetSkillName);
+  if (localBody && localBody.length > 40) {
+    return {
+      skill: { ...s, local: true },
+      name: targetSkillName,
+      file: `skills/${targetSkillName}/SKILL.md`,
+      url: "",
+      body: localBody,
+    };
+  }
+
   if (s.local && s.skill) {
     const file = `skills/${s.skill}/SKILL.md`;
     const body = loadSkill(s.skill);

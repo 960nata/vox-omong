@@ -295,6 +295,26 @@ export function TeamSidebar({
     }
   };
 
+  const handleActivateDivisions = async (divisions: string[]) => {
+    if (!currentSession) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/teams", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "activate_divisions", sessionId: currentSession.id, divisions }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gagal mengaktifkan divisi");
+      await loadTeams();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // Hapus Riwayat / Sesi (Reset Bersih Grup & Kontak)
   const confirmDeleteSession = async () => {
     if (!sessionToDelete) return;
@@ -643,20 +663,36 @@ export function TeamSidebar({
                 <div className="text-center py-6 px-3 bg-hover/30 rounded-2xl border border-line/60 mx-1">
                   <span className="text-2xl block mb-2">💬</span>
                   <p className="text-xs font-semibold text-fg mb-1">
-                    Proyek ini masih bersih & kosongan
+                    Tahap Discovery & Ideation
                   </p>
                   <p className="text-[11px] text-fg-3 leading-relaxed mb-3">
-                    Ceritain langsung idemu di ruang chat. AI bakal dengerin dulu dan ngasih rekomendasi divisi yang cocok!
+                    Belum ada divisi yang dibentuk. Ceritakan idemu atau lampirkan folder di chat umum untuk mendapatkan analisis mendalam & rekomendasi tim!
                   </p>
-                  <button
-                    onClick={() => {
-                      onGeneralChat();
-                      if (floating) onClose();
-                    }}
-                    className="inline-flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-xl bg-accent text-white font-semibold shadow-sm hover:opacity-90"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" /> Mulai Ngobrol di Chat
-                  </button>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => {
+                        onGeneralChat();
+                        if (floating) onClose();
+                      }}
+                      className="inline-flex items-center justify-center gap-1.5 text-xs px-3.5 py-2 rounded-xl bg-accent text-white font-semibold shadow-sm hover:opacity-90 cursor-pointer"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" /> Buka Chat Umum Proyek
+                    </button>
+                    {currentSession?.recommendedDivisions && currentSession.recommendedDivisions.length > 0 && (
+                      <button
+                        onClick={() => handleActivateDivisions(currentSession.recommendedDivisions!)}
+                        className="inline-flex items-center justify-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border border-accent/40 bg-accent/10 text-accent font-medium hover:bg-accent/20 cursor-pointer"
+                      >
+                        ⚡ Bentuk Tim Rekomendasi ({currentSession.recommendedDivisions.length} Divisi)
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleActivateDivisions(["developer"])}
+                      className="inline-flex items-center justify-center gap-1.5 text-[11px] px-3 py-1.5 rounded-xl border border-line bg-base text-fg-2 hover:bg-hover cursor-pointer"
+                    >
+                      💻 Bentuk 1 Divisi: Tim Developer Saja
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <>

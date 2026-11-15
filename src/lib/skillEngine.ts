@@ -4,6 +4,7 @@ import { createHash } from "crypto";
 import { callLLM } from "./codeAgent";
 import { parseLoose } from "./jsonLoose";
 import { resolveSkill, svcNote, type ResolvedSkill } from "./skillHub";
+import { loadSkill } from "./skillLoader";
 
 /**
  * Mesin eksekusi skill komunitas. Model kecil/cepat gagal kalau disodori SKILL.md mentah 12 ribu karakter
@@ -294,4 +295,58 @@ export async function runSkillEngine(opts: {
 
   const footer = `\n\n---\n_Dikerjakan dengan skill **${r.name}**${source}${rv ? ` · cek mutu ${revised ? "→ direvisi" : `${rv.score}/10`}` : ""}_`;
   return { reply: draft + footer, skill: r.name, url: r.url, model, score: rv?.score, revised };
+}
+
+export type ExecuteSkillOptions = {
+  skillName: string;
+  prompt: string;
+  input?: string;
+  history?: { role: string; content: string }[];
+  apiKey?: string;
+  language?: "id-ID" | "en-US";
+  mode?: SkillEngineMode;
+  onStep?: (step: string) => void;
+};
+
+/** Eksekusi terarah dari nama skill tertentu secara langsung (tanpa inferensi kata kunci). */
+export async function executeSkillDirect(opts: ExecuteSkillOptions): Promise<SkillRun & { playbook?: Playbook }> {
+  const { skillName, prompt, input = "", history = [], apiKey, language = "id-ID", mode, onStep } = opts;
+  const fullMessage = input ? `${prompt}\n\nDATA/INPUT TAMBAHAN:\n${input}` : prompt;
+
+  let r: ResolvedSkill | null = null;
+  const cleanName = skillName.toLowerCase().trim().replace(/[^a-z0-9_-]/g, "-").replace(/[-_]+/g, "-");
+  const localBody = loadSkill(cleanName);
+
+  if (localBody && localBody.length > 40) {
+    r = {
+      skill: { repo: `local/${cleanName}`, skill: cleanName, local: true, desc: `Skill lokal ${cleanName}`, kw: cleanName },
+      name: cleanName,
+      file: `skills/${cleanName}/SKILL.md`,
+      url: "",
+      body: localBody,
+    };
+  } else {
+    r = await resolveSkill(`pakai skill ${cleanName} ${fullMessage}`);
+  }
+
+  if (!r) {
+    throw new Error(`Skill "${skillName}" tidak ditemukan di folder lokal maupun katalog.`);
+  }
+
+  const pb = await getPlaybook(r, apiKey, mode);
+  const result = await runSkillEngine({
+    message: fullMessage,
+    history,
+    apiKey,
+    language,
+    mode,
+    resolved: r,
+    onStep,
+  });
+
+  if (!result) {
+    throw new Error(`Skill engine gagal menghasilkan jawaban untuk "${skillName}".`);
+  }
+
+  return { ...result, playbook: pb };
 }

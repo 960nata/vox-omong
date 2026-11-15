@@ -96,6 +96,8 @@ export interface TeamSession {
 export interface ProjectAnalysisResult {
   projectTitle: string;
   executiveSummary: string;
+  strengths?: string[];
+  weaknesses?: string[];
   recommendedDivisions: {
     kind: TeamKind;
     name: string;

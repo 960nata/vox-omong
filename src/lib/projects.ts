@@ -205,7 +205,9 @@ export async function writeProjectFile(projectId: string, relPath: string, conte
   try {
     const { target } = getSafeProjectPath(projectId, relPath);
     await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(target, content, "utf-8");
+    const tmp = `${target}.${process.pid}.${Date.now()}-${Math.random().toString(36).substring(2, 6)}.tmp`;
+    await fs.writeFile(tmp, content, "utf-8");
+    await fs.rename(tmp, target);
     return true;
   } catch {
     return false;
