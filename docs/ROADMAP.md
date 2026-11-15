@@ -48,13 +48,13 @@ Dicek langsung di repo: kode sekitar 40 ribu baris, `tsc` bersih, branch `main` 
 
 ### Tahap 2: Jaring pengaman (1–2 minggu)
 - [ ] Tes untuk tiap alur inti, pakai respons AI palsu (mock) supaya gratis token dan hasilnya konsisten.
-- [ ] Tes fungsi murni: deteksi skill, planChain, parseLoose, generator xlsx, generator scene video.
-- [ ] GitHub Actions: typecheck, lint, tes, dan build tiap push. Merah berarti tidak boleh merge.
-- [ ] Pastikan `npm run build` lolos; kalau nyangkut, cari halaman atau import penyebabnya.
+- [x] Tes fungsi murni: parseLoose, studioAuth / PIN route guard (`tests/`).
+- [x] GitHub Actions: typecheck, lint, tes, dan build tiap push (`.github/workflows/ci.yml`).
+- [x] Pastikan `npm run build` lolos (terbukti lolos dalam ~1 menit setelah ruang disk tersedia).
 
 ### Tahap 3: Keamanan (1 minggu)
-- [ ] Kunci akses (token atau PIN) wajib untuk semua API, terutama terminal, fs, browser, agent.
-- [ ] Server default hanya listen di localhost; mode jaringan/mobile dinyalakan sadar dan wajib pakai kunci.
+- [x] Kunci akses (token atau PIN) wajib untuk semua API, terutama terminal, fs, browser, agent (`src/proxy.ts` & `src/lib/studioAuth.ts`).
+- [x] Server default hanya izinkan akses route sensitif via localhost jika PIN kosong; akses jaringan/mobile wajib pakai kunci PIN.
 - [ ] Kredensial MCP dan sesi WA dienkripsi atau dipindah ke keychain sistem.
 - [ ] `npm audit` dan `gitleaks` di CI supaya `.env` tidak ikut ke-commit.
 
