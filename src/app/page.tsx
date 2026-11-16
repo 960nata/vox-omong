@@ -429,6 +429,37 @@ export default function VoiceAiStudio() {
     fetchMessages();
   }, [activeConvId]);
 
+  // Hasil tugas background ditulis ke percakapan di server; pantau supaya muncul tanpa reload manual.
+  useEffect(() => {
+    if (!activeConvId) return;
+    let stopped = false;
+    let sawRunning = false;
+    const tick = async () => {
+      try {
+        const res = await fetch("/api/agent/tasks?all=1");
+        const data = await res.json();
+        const mine = ((data.tasks || []) as Array<{ conversationId?: string; status: string }>).filter(
+          (t) => t.conversationId === activeConvId,
+        );
+        const running = mine.some((t) => t.status === "queued" || t.status === "running");
+        if (running) {
+          sawRunning = true;
+        } else if (sawRunning && !stopped) {
+          sawRunning = false;
+          const conv = await fetch(`/api/conversations/${activeConvId}`).then((r) => r.json());
+          if (conv.conversation) setMessages(conv.conversation.messages || []);
+        }
+      } catch {
+        // polling gagal sesaat tidak perlu mengganggu pengguna; dicoba lagi di putaran berikutnya
+      }
+    };
+    const timer = setInterval(tick, 4000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [activeConvId]);
+
   // Auto-scroll chat to bottom
   useEffect(() => {
     const chat = chatScrollRef.current;
