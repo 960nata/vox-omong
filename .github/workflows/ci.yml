@@ -24,6 +24,9 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      - name: Generate Next.js route types
+        run: npx next typegen
+
       - name: Typecheck TypeScript
         run: npm run typecheck
 
