@@ -35,6 +35,9 @@
 
   --ink: #121517;
   --on-ink: #ffffff;
+  /* Bubble chat user: tetap gelap di dua tema supaya lampiran (teks putih) selalu terbaca */
+  --bubble: #121517;
+  --on-bubble: #ffffff;
   --scrim: #0b0d0e;
   --on-accent: #ffffff;
 
@@ -67,6 +70,8 @@
   --danger-wash: #351616;
   --ink: #f6f7f8;
   --on-ink: #121517;
+  --bubble: #252c32;
+  --on-bubble: #f2f4f5;
   --scrim: #000000;
   --on-accent: #ffffff;
   color-scheme: dark;
@@ -96,6 +101,8 @@
     --danger-wash: #351616;
     --ink: #f6f7f8;
     --on-ink: #121517;
+    --bubble: #252c32;
+    --on-bubble: #f2f4f5;
     --scrim: #000000;
     --on-accent: #ffffff;
     color-scheme: dark;
@@ -378,6 +385,19 @@ code, pre, .font-mono {
   --hover: color-mix(in oklab, var(--on-ink) 12%, transparent);
   --line: color-mix(in oklab, var(--on-ink) 18%, transparent);
   color: var(--on-ink);
+}
+
+/* Bubble chat user: permukaan gelap di tema terang maupun gelap */
+.bubble-user {
+  --fg: var(--on-bubble);
+  --fg-2: color-mix(in oklab, var(--on-bubble) 85%, transparent);
+  --fg-3: color-mix(in oklab, var(--on-bubble) 65%, transparent);
+  --fg-4: color-mix(in oklab, var(--on-bubble) 45%, transparent);
+  --hover: color-mix(in oklab, var(--on-bubble) 12%, transparent);
+  --line: color-mix(in oklab, var(--on-bubble) 18%, transparent);
+  background: var(--bubble);
+  color: var(--on-bubble);
+  border: 1px solid color-mix(in oklab, var(--on-bubble) 10%, transparent);
 }
 
 /* Chip pill: fill tinta menyebar dari tengah saat hover */

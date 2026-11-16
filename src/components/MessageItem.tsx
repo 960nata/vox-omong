@@ -53,7 +53,7 @@ export function MessageItem({
         className={`min-w-0 max-w-full px-3 sm:px-4 py-2.5 sm:py-3 text-[14px] [overflow-wrap:anywhere] leading-relaxed ${
           isAssistant
             ? "w-full bg-base text-fg rounded-[1.1rem] rounded-bl-md"
-            : "on-ink bg-ink rounded-[1.1rem] rounded-br-md"
+            : "bubble-user rounded-[1.1rem] rounded-br-md"
         }`}
       >
         {/* Lampiran gambar */}
