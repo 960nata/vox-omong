@@ -50,15 +50,15 @@ const AI_MODES: Array<{
   name: string;
   Icon: React.ElementType;
 }> = [
-  // 🎁 100% GRATIS (FreeLLMAPI - 0 Kredit)
+  // 🎁 AI GW & FreeLLMAPI (100% Gratis - 0 Kredit)
+  { id: "user-private", name: "AI GW Free (aigw)", Icon: Shield },
   { id: "freellmapi-auto", name: "FreeLLMAPI Auto", Icon: Sparkles },
   { id: "freellmapi-groq", name: "FreeLLMAPI Groq LPU", Icon: Zap },
   { id: "freellmapi-cerebras", name: "FreeLLMAPI Cerebras", Icon: Cpu },
   { id: "freellmapi-gemini", name: "FreeLLMAPI Gemini", Icon: Feather },
 
-  // Cepat & Daily
+  // 💳 API GW Classic / Prabayar (ClassAI Router - Saldo Kredit)
   { id: "flash", name: "DeepSeek Flash", Icon: Feather },
-  { id: "user-private", name: "Gateway Pribadi (aigw)", Icon: Shield },
   { id: "coding-china-auto", name: "Coding China (Auto)", Icon: Zap },
   { id: "coding-us-auto", name: "Coding US (Auto)", Icon: Zap },
   { id: "duo", name: "Duo Engine", Icon: Zap },

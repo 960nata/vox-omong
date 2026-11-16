@@ -288,8 +288,15 @@ export function calculateEstimatedCredits(
   source?: UsageRecord["source"]
 ): number {
   const norm = model.toLowerCase();
-  // 100% Bebas Biaya (0 Kredit) untuk FreeLLMAPI dan model berlabel free
-  if (source === "freellmapi" || norm.startsWith("freellmapi") || norm.includes(":free")) {
+  // 100% Bebas Biaya (0 Kredit) untuk AI GW (aigw_...), FreeLLMAPI, dan model gratis
+  if (
+    source === "freellmapi" ||
+    source === "custom_local" ||
+    norm.startsWith("freellmapi") ||
+    norm.includes("user-private") ||
+    norm.includes("aigw") ||
+    norm.includes(":free")
+  ) {
     return 0;
   }
 

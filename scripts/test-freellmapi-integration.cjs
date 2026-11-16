@@ -37,19 +37,21 @@ async function run() {
     console.log(`✓ Model [${m}] terdaftar dengan 0 biaya (Gratis)`);
   }
 
-  // 2. Test calculateEstimatedCredits for FreeLLMAPI
+  // 2. Test calculateEstimatedCredits for FreeLLMAPI & AI GW (Both 100% Free)
   const freeCost = calculateEstimatedCredits("freellmapi-groq", 1000, 2000, "freellmapi");
-  if (freeCost !== 0) {
-    throw new Error(`Perhitungan kredit FreeLLMAPI gagal! Diharapkan 0, didapat: ${freeCost}`);
+  const aiGwCost = calculateEstimatedCredits("user-private-gateway", 1000, 2000, "custom_local");
+  if (freeCost !== 0 || aiGwCost !== 0) {
+    throw new Error(`Perhitungan kredit gratis gagal! freeCost: ${freeCost}, aiGwCost: ${aiGwCost}`);
   }
-  console.log(`✓ calculateEstimatedCredits untuk FreeLLMAPI = ${freeCost} Kredit (100% Gratis - Saldo Utuh)`);
+  console.log(`✓ calculateEstimatedCredits untuk FreeLLMAPI = ${freeCost} Kredit (100% Gratis)`);
+  console.log(`✓ calculateEstimatedCredits untuk AI GW (aigw) = ${aiGwCost} Kredit (100% Gratis - Saldo Utuh)`);
 
-  // 3. Test calculateEstimatedCredits for AIGW (Paid)
+  // 3. Test calculateEstimatedCredits for API GW Classic (Paid / Prabayar)
   const paidCost = calculateEstimatedCredits("claude-sonnet-5.5", 1000, 2000, "classai_prime");
   if (paidCost <= 0) {
-    throw new Error(`Perhitungan kredit AIGW gagal! Diharapkan > 0, didapat: ${paidCost}`);
+    throw new Error(`Perhitungan kredit API GW Classic gagal! Diharapkan > 0, didapat: ${paidCost}`);
   }
-  console.log(`✓ calculateEstimatedCredits untuk AIGW (Sonnet 5.5) = ${paidCost} Kredit (Potong Saldo Berbayar)`);
+  console.log(`✓ calculateEstimatedCredits untuk API GW Classic (Sonnet 5.5) = ${paidCost} Kredit (Prabayar / Potong Saldo)`);
 
   console.log("\nALL FREELLMAPI & AIGW ISOLATION TESTS PASSED 100%!");
 }

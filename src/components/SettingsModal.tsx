@@ -136,14 +136,14 @@ const AI_MODES_INFO: Array<{
     Icon: Sparkles,
   },
 
-  // 2. SERVER PRIBADI (aigw)
+  // 2. AI GW (100% GRATIS)
   {
     id: "user-private",
-    name: "Gateway Pribadi (aigw)",
-    badge: "SERVER SENDIRI",
-    desc: "Nembak langsung ke server proxy dan model-model internal/gratisan lu.",
-    costNote: "0 kredit router (Bebas kuota)",
-    category: "private",
+    name: "AI GW Free (aigw)",
+    badge: "100% GRATIS",
+    desc: "Nembak langsung ke AI GW lu (aigw_...) di aiinvestdesk.com — model gratisan (DeepSeek, Groq, Cerebras, Gemini).",
+    costNote: "0 kredit (Bebas Biaya / Rp 0)",
+    category: "free",
     Icon: Shield,
   },
 
@@ -657,8 +657,8 @@ export function SettingsModal({
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {[
                     { id: "all", label: "Semua (25+ Model)" },
-                    { id: "free", label: "🎁 FreeLLMAPI (100% Gratis - Rp 0)" },
-                    { id: "flagship", label: "💎 AIGW Sultan (Potong Saldo)" },
+                    { id: "free", label: "🎁 AI GW & FreeLLMAPI (100% Gratis - Rp 0)" },
+                    { id: "flagship", label: "💳 API GW Classic / Prabayar (ClassAI)" },
                     { id: "fast", label: "⚡ Cepat & Coding" },
                     { id: "auto", label: "🤖 Auto Failover" },
                     { id: "private", label: "🛡️ Server Pribadi" },

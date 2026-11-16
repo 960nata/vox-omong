@@ -266,6 +266,20 @@ export async function executeTerminal(opts: { command: string; projectId?: strin
 
 const SUPPORTED_CLI = "(?:npm|npx|node|pnpm|yarn|bun|python|python3|pip|pip3|git|ls|cat|pwd|mkdir|curl|wget|echo|deno|cargo|go|make|docker|touch|find|grep|head|tail)";
 
+/**
+ * Pesan chat yang langsung dianggap perintah tanpa kata "jalankan".
+ * Hanya nama alat yang tidak mungkin kalimat biasa. Kata seperti make/go/find/cat/echo/head juga
+ * kata Inggris sehari-hari ("make a landing page", "go ahead"), jadi wajib diawali "jalankan ..."
+ * atau ditulis dalam backtick.
+ */
+const BARE_TOOLS = /^(?:npm|npx|pnpm|yarn|bun|pip3?|git|docker|cargo|deno)\s+\S/;
+const BARE_SCRIPT = /^(?:node|python3?)\s+(?:-{1,2}[\w-]+|[\w./-]+\.(?:m?js|ts|py))(?:\s|$)/;
+export function isBareCommand(message: string): boolean {
+  const m = message.trim();
+  if (m.includes("\n") || /\?\s*$/.test(m)) return false;
+  return BARE_TOOLS.test(m) || BARE_SCRIPT.test(m);
+}
+
 function concreteCommand(text: string): string | null {
   const inline = text.match(new RegExp(`\`(${SUPPORTED_CLI}\\s+[^\`\\n]+)\``, "i"))?.[1];
   const line = text.match(new RegExp(`(?:^|\\n)\\s*(?:\\$\\s*|[-*]\\s*)?(${SUPPORTED_CLI}\\s+[^\\n\`]+)`, "i"))?.[1];
@@ -281,10 +295,9 @@ export async function handleTerminalMessage(opts: {
   const stop = /^(?:stop|hentikan|matikan|berhenti(?:kan)?)\s+(?:terminal|(?:dev\s+)?server|npm|python)(?:\s+(?:dong|cuy|ya))?[.!]?$/i.test(message);
   const status = /^(?:cek|lihat|apa)?\s*status\s+(?:terminal|(?:dev\s+)?server|npm|python)(?:\s+(?:dong|cuy|ya))?[?!]?$/i.test(message);
   
-  const cliPattern = new RegExp(`^${SUPPORTED_CLI}\\s+`, "i");
-  let command = cliPattern.test(message) ? message : null;
+  let command = isBareCommand(message) ? message : null;
   if (!command) {
-    const triggerPattern = new RegExp(`^(?:(?:tolong|coba)\\s+)?(?:jalankan|jalanin|eksekusi|run)\\s+(?:(?:di\s+)?terminal\\s*:?\\s*)?(\`?${SUPPORTED_CLI}\\s+[\\s\\S]+)$`, "i");
+    const triggerPattern = new RegExp(`^(?:(?:tolong|coba)\\s+)?(?:jalankan|jalanin|eksekusi|run)\\s+(?:(?:di\\s+)?terminal\\s*:?\\s*)?(\`?${SUPPORTED_CLI}\\s+[\\s\\S]+)$`, "i");
     command = message.match(triggerPattern)?.[1] || null;
   }
   if (!command && /^(?:jalanin|jalankan|kerjakan|eksekusi)(?:\s+(?:dong|aja|sekarang|instalasinya|installnya|perintahnya|itu|cuy|ya))*[.!]?$/i.test(message)) {
