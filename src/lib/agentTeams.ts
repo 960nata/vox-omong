@@ -129,6 +129,16 @@ export async function getTeam(id: string): Promise<Team> {
   });
 }
 
+/** Hapus satu tim. Tim yang sedang mengerjakan tugas ditolak supaya pekerjaannya tidak hilang di tengah jalan. */
+export async function deleteTeam(id: string): Promise<void> {
+  return locked(id, async () => {
+    if (runtime.active.has(id)) throw new TeamError("Tim sedang mengerjakan tugas. Hentikan tugasnya dulu.", 409);
+    await fs.unlink(fileFor(id)).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
+  });
+}
+
 export async function listTeams(projectId: string): Promise<Team[]> {
   await fs.mkdir(BASE, { recursive: true });
   const project = sanitizeSlug(projectId || "default-workspace");
@@ -362,7 +372,7 @@ Forum ini menyelaraskan visi lintas divisi, mengevaluasi PRD, dan melakukan voti
   return execTeam;
 }
 
-export async function analyzeProjectIdea(prompt: string, apiKey?: string, folderContext?: string): Promise<ProjectAnalysisResult> {
+export async function analyzeProjectIdea(prompt: string, apiKey?: string, folderContext?: string, style?: string): Promise<ProjectAnalysisResult> {
   const cleanPrompt = prompt.trim();
   if (!cleanPrompt && !folderContext) throw new TeamError("Ide proyek atau konteks folder tidak boleh kosong");
 
@@ -420,30 +430,35 @@ Keluarkan HANYA JSON valid sesuai format ini tanpa teks tambahan:
   }
 }`;
 
-  try {
-    const promptText = `Analisis ide proyek/codebase ini dan susun blueprint analisisnya:\n"""\n${cleanPrompt || "Analisis codebase terlampir"}\n"""${
-      folderContext ? `\n\nKONTEKS STRUKTUR FOLDER & KODE TERLAMPIR:\n"""\n${folderContext.slice(0, 4000)}\n"""` : ""
-    }`;
-
-    const res = await callLLM({
-      apiKey,
-      system,
-      prompt: promptText,
-      maxTokens: 1800,
-      fast: true,
-      json: true,
-      timeoutMs: 40_000,
-      temperature: 0.2,
-      prefer: ["deepseek", "qwen", "cheap"],
-    });
-
-    const parsed = JSON.parse(res.text) as ProjectAnalysisResult;
-    if (parsed.projectTitle && Array.isArray(parsed.recommendedDivisions) && parsed.recommendedDivisions.length > 0) {
-      if (!Array.isArray(parsed.strengths)) parsed.strengths = [];
-      if (!Array.isArray(parsed.weaknesses)) parsed.weaknesses = [];
-      return parsed;
+  const promptText = `Analisis ide proyek/codebase ini dan susun blueprint analisisnya:\n"""\n${cleanPrompt || "Analisis codebase terlampir"}\n"""${
+    folderContext ? `\n\nKONTEKS STRUKTUR FOLDER & KODE TERLAMPIR:\n"""\n${folderContext.slice(0, 4000)}\n"""` : ""
+  }`;
+  // Dua kali coba: kegagalan model biasanya sesaat (lambat / batas waktu), cadangan hanya kalau dua-duanya gagal
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await callLLM({
+        apiKey,
+        system: style ? `${system}\n- ${style}` : system,
+        prompt: promptText,
+        maxTokens: 1800,
+        fast: true,
+        json: true,
+        timeoutMs: 60_000,
+        temperature: 0.2,
+        prefer: ["deepseek", "qwen", "cheap"],
+      });
+      // Balasan model sering dibungkus pagar kode / teks pengantar: parse longgar, jangan JSON.parse mentah
+      const parsed = parseJsonLoose<ProjectAnalysisResult>(res.text);
+      if (parsed && parsed.projectTitle && Array.isArray(parsed.recommendedDivisions) && parsed.recommendedDivisions.length > 0) {
+        if (!Array.isArray(parsed.strengths)) parsed.strengths = [];
+        if (!Array.isArray(parsed.weaknesses)) parsed.weaknesses = [];
+        return parsed;
+      }
+      console.warn(`[analyzeProjectIdea] percobaan ${attempt + 1}: balasan model tidak lengkap`);
+    } catch (err) {
+      console.warn(`[analyzeProjectIdea] percobaan ${attempt + 1} gagal:`, (err as Error).message);
     }
-  } catch (err) {}
+  }
 
   const isWebOrApp = /\b(web|website|aplikasi|app|platform|saas|software|bot|sistem|online|portal|dashboard|landing|toko)\b/i.test(cleanPrompt);
   const isBusiness = /\b(bisnis|startup|jual|sewa|marketplace|jasa|uang|untung|monetisasi|harga|investor|modal)\b/i.test(cleanPrompt);
@@ -453,22 +468,24 @@ Keluarkan HANYA JSON valid sesuai format ini tanpa teks tambahan:
 
   const divisions: ProjectAnalysisResult["recommendedDivisions"] = [];
   if (isTrading) {
-    divisions.push({ kind: "trading", name: "Tim Trader & Finansial", recommended: true, reason: "Dibutuhkan untuk merumuskan strategi analisa teknikal dan manajemen risiko modal.", initialFocus: "Analisis indikator teknikal & rasio Risk-to-Reward" });
-    if (isWebOrApp) divisions.push({ kind: "developer", name: "Tim Developer", recommended: true, reason: "Dibutuhkan untuk mengautomasi sinyal bot atau dashboard antarmuka.", initialFocus: "Implementasi integrasi API data feed & UI visualisasi" });
+    divisions.push({ kind: "trading", name: "Tim Trader & Finansial", recommended: true, reason: "Menghitung risiko modal dan menyusun strategi supaya uangnya aman.", initialFocus: "Analisis indikator teknikal & rasio Risk-to-Reward" });
+    if (isWebOrApp) divisions.push({ kind: "developer", name: "Tim Developer", recommended: true, reason: "Membuat aplikasi atau bot yang menjalankan strateginya secara otomatis.", initialFocus: "Implementasi integrasi API data feed & UI visualisasi" });
   } else if (isCareer) {
-    divisions.push({ kind: "career", name: "Tim Karier & Talent", recommended: true, reason: "Dibutuhkan untuk membedah standar CV ATS dan simulasi interview.", initialFocus: "Optimasi formula Google XYZ pada profil pengalaman" });
+    divisions.push({ kind: "career", name: "Tim Karier & Talent", recommended: true, reason: "Merapikan CV supaya lolos seleksi dan melatih wawancara kerja.", initialFocus: "Optimasi formula Google XYZ pada profil pengalaman" });
   } else {
-    divisions.push({ kind: "founder", name: "Tim Founder & Startup", recommended: true, reason: "Dibutuhkan untuk memvalidasi masalah pasar, target pelanggan, dan merumuskan PRD awal.", initialFocus: "Penyusunan dokumen PRD dan validasi model bisnis" });
-    divisions.push({ kind: "developer", name: "Tim Developer", recommended: true, reason: "Dibutuhkan untuk merancang arsitektur teknis, UI/UX, dan implementasi kode.", initialFocus: "Desain antarmuka pengguna & struktur basis data" });
+    divisions.push({ kind: "founder", name: "Tim Founder & Startup", recommended: true, reason: "Mengecek apakah ide ini benar-benar dibutuhkan orang dan menyusun rencana produknya.", initialFocus: "Penyusunan dokumen PRD dan validasi model bisnis" });
+    divisions.push({ kind: "developer", name: "Tim Developer", recommended: true, reason: "Membuat aplikasi atau website-nya, dari tampilan sampai sistem di belakangnya.", initialFocus: "Desain antarmuka pengguna & struktur basis data" });
     if (isMarketing || isBusiness) {
-      divisions.push({ kind: "marketing", name: "Tim Marketing", recommended: true, reason: "Dibutuhkan untuk merancang strategi akuisisi pengguna awal dan positioning produk.", initialFocus: "Strategi go-to-market & copywriting kampanye awal" });
+      divisions.push({ kind: "marketing", name: "Tim Marketing", recommended: true, reason: "Mencari pengguna pertama dan mengenalkan produknya ke orang banyak.", initialFocus: "Strategi go-to-market & copywriting kampanye awal" });
     }
   }
 
-  const titleWords = cleanPrompt.split(/\s+/).slice(0, 5).join(" ");
   return {
-    projectTitle: titleWords.length > 3 ? titleWords.charAt(0).toUpperCase() + titleWords.slice(1) : "Proyek Inovasi Baru",
-    executiveSummary: `Analisis awal untuk ide: "${cleanPrompt.slice(0, 100)}...". Tim direkomendasikan berdasarkan domain fungsional yang diperlukan.`,
+    fallback: true,
+    projectTitle: "Proyek Inovasi Baru",
+    executiveSummary: "Analisis lengkap belum berhasil dibuat, jadi ini saran tim umum berdasarkan kata kunci idenya.",
+    strengths: ["Idenya sudah cukup jelas untuk mulai dikerjakan bertahap."],
+    weaknesses: ["Belum terbukti ada orang yang mau bayar. Sebaiknya tanya dulu ke 10 sampai 15 calon pengguna."],
     recommendedDivisions: divisions,
     initialPrdSeed: {
       problemStatement: `Menyelesaikan titik sakit utama yang diidentifikasi dari ide: ${cleanPrompt.slice(0, 150)}`,

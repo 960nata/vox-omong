@@ -95,12 +95,20 @@ export interface TeamSession {
   recommendedDivisions?: TeamKind[];
   /** Ide yang terakhir ditawarkan di tahap ideation, menunggu dipilih ("ide 1"). */
   ideaOptions?: IdeaOption[];
+  /** Judul ide yang sudah pernah ditawarkan; dipakai supaya "ide lain" benar-benar lain. */
+  rejectedIdeas?: string[];
+  /** Ide yang terlalu umum, sedang ditanyakan detailnya ke user. */
+  pendingBrief?: string;
+  /** Ide terakhir yang dibedah, untuk "bedah ulang". */
+  lastBrief?: string;
   conversationId?: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface ProjectAnalysisResult {
+  /** true = model gagal, ini analisis cadangan dari kata kunci. */
+  fallback?: boolean;
   projectTitle: string;
   executiveSummary: string;
   strengths?: string[];

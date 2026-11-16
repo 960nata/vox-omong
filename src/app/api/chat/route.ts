@@ -41,7 +41,9 @@ import { hasStudioSession } from "@/lib/studioAuth";
 import { runReActLoop } from "@/lib/agentic/reactLoop";
 import { artifactProblem } from "@/lib/agentic/verify";
 import { looksLikeUnroutedTask, routeIntent, type Intent } from "@/lib/intentRouter";
-import { asksForTeams, buildTeamPicker, chosenDivisions, claimsTeamFlow, formatAnalysis, formatIdeas, IDEA_SYSTEM, ideaFailedMessage, teamListMessage, teamsFormedMessage, isProjectBrief, isTeamSetupRequest as wantsTeamSetup, parseIdeas, pickIdea, singleDivision, wantsIdeaSuggestions } from "@/lib/teamFlow";
+import { decideFlow, detectVoice, type FlowAction } from "@/lib/teamFlow";
+import { flowContext, runTeamFlow } from "@/lib/teamFlowRunner";
+import type { TeamPicker } from "@/lib/types";
 import { isBareCommand } from "@/lib/terminalRuntime";
 import { findEmails } from "@/lib/email";
 import { runVisualCritic } from "@/lib/agentic/visualCritic";
@@ -176,8 +178,9 @@ export async function POST(req: Request) {
     const teamSession = activeProjectId ? await getSession(activeProjectId).catch(() => null) : null;
     // Folder kosong (0 file) bukan codebase: jangan dilaporkan "berhasil dimuat", perlakukan pesannya saja
     const hasRealFolder = attachedItem?.type === "folder" && Number(attachedItem.itemCount || attachedItem.files?.length || 0) > 0;
-    const teamCount = teamSession ? (await listTeams(activeProjectId).catch(() => [])).filter((t) => t.kind !== "executive").length : 0;
-    const teamFlow = !!teamSession && projectDirectReply === null && claimsTeamFlow(trimmedMessage, { stage: teamSession.pipelineStage, teamCount, hasFolder: hasRealFolder, ideaCount: teamSession.ideaOptions?.length ?? 0 });
+    const flowCtx = teamSession ? await flowContext(teamSession, activeProjectId, hasRealFolder) : null;
+    const flowAction: FlowAction | null = teamSession && flowCtx && projectDirectReply === null ? decideFlow(trimmedMessage, flowCtx) : null;
+    const teamFlow = flowAction !== null;
     {
       const ownRoute = teamFlow || projectDirectReply !== null || !!attachedItem || !!imageUri || !!imageDataUri || OWN_ROUTE.test(work) ||
         !!detectSkill(work) || isVideoRequest(work) || !!planChain(work) || isBareCommand(work) || !!detectAgentTask(work) || findEmails(work).length > 0;
@@ -652,111 +655,18 @@ AI bisa langsung membaca dan mengedit bagian mana pun dari kode ini di lokal, mi
     const editFileMatch = trimmedMessage.match(/\b(?:edit|ubah|ganti|modifikasi|update|perbarui)\s+(?:isi\s+)?file\s+([a-zA-Z0-9_\-\/\.]+)(?:\s+(?:isinya|menjadi|jadi|dengan|untuk|agar|tolong)\s+([\s\S]+))?/i);
     const editWebsiteMatch = !editFileMatch && /\b(?:edit|ubah|ganti|modifikasi)\s+(?:project\s+)?(?:website|web|situs|landing\s+page)\s+(?:di\s+lokal\s+)?(?:ini\s+)?([\s\S]*)/i.test(trimmedMessage);
 
-    // D4. Check untuk Konfirmasi Pembentukan Tim ("bentuk tim rekomendasi" / "bentuk tim developer saja")
-    const isTeamSetupRequest = wantsTeamSetup(trimmedMessage) || (asksForTeams(trimmedMessage) && !!teamSession && teamCount === 0);
-
-    // "timnya mana": tim sudah ada → tunjukkan, bukan dikerjakan agent umum
-    if (projectDirectReply === null && teamSession && teamCount > 0 && asksForTeams(trimmedMessage) && !wantsTeamSetup(trimmedMessage)) {
-      const teams = (await listTeams(activeProjectId)).filter((t) => t.kind !== "executive");
-      projectDirectReply = teamListMessage(teamSession.title, teams.map((t) => ({ name: t.name, members: t.members.map((m) => m.name) })));
-    }
-
-    if (projectDirectReply === null && isTeamSetupRequest && activeProjectId) {
-      const session = await getSession(activeProjectId);
-      if (session) {
-        // Pilihan dari kolom ceklis ("Bentuk tim: Tim Developer, Tim Marketing") atau ketikan ("tim developer saja")
-        const chosen = chosenDivisions(trimmedMessage) as TeamKind[];
-        if (chosen.length >= 2) {
-          const existing = await listTeams(activeProjectId);
-          for (const k of chosen) if (!existing.some(t => t.kind === k)) await createTeam(activeProjectId, k);
-          await syncExecutiveBoard(activeProjectId);
-          session.pipelineStage = "prd";
-          session.updatedAt = new Date().toISOString();
-          await saveSession(session);
-          projectDirectReply = teamsFormedMessage(chosen.map((k) => TEAM_NAMES[k] || k), true);
-        } else if (chosen.length === 1 || singleDivision(trimmedMessage)) {
-          const kind = (chosen[0] || singleDivision(trimmedMessage)) as TeamKind;
-          const existing = await listTeams(activeProjectId);
-          if (!existing.some(t => t.kind === kind)) {
-            await createTeam(activeProjectId, kind);
-          }
-          session.pipelineStage = "development";
-          session.updatedAt = new Date().toISOString();
-          await saveSession(session);
-          projectDirectReply = teamsFormedMessage([TEAM_NAMES[kind] || kind], false);
-        } else {
-          const recs = session.recommendedDivisions || ["founder", "developer", "marketing"];
-          const existing = await listTeams(activeProjectId);
-          for (const k of recs) {
-            if (k !== "executive" && !existing.some(t => t.kind === k)) {
-              await createTeam(activeProjectId, k);
-            }
-          }
-          const all = await listTeams(activeProjectId);
-          if (all.filter(t => t.kind !== "executive").length >= 2) {
-            await syncExecutiveBoard(activeProjectId);
-          }
-          session.pipelineStage = "prd";
-          session.updatedAt = new Date().toISOString();
-          await saveSession(session);
-          const formed = all.filter(t => t.kind !== "executive");
-          projectDirectReply = teamsFormedMessage(formed.map((t) => t.name), formed.length >= 2);
-        }
-      }
-    }
-
-    // D4b. Ideation tanpa ide konkret: tawarkan ide bernomor; "ide 1" / "yang kedua" langsung dibedah di D5
-    let ideationBrief: string | null = null;
-    let teamPicker: ReturnType<typeof buildTeamPicker> | undefined;
-    if (projectDirectReply === null && teamFlow && teamSession && !wantsTeamSetup(trimmedMessage) && !asksForTeams(trimmedMessage)) {
-      const options = teamSession.ideaOptions || [];
-      const picked = pickIdea(trimmedMessage, options.length);
-      if (picked !== null) {
-        ideationBrief = `${options[picked].title}: ${options[picked].pitch}`;
-        teamSession.ideaOptions = undefined;
-        await saveSession(teamSession);
-      } else if (wantsIdeaSuggestions(trimmedMessage) && !hasRealFolder) {
-        try {
-          const out = await callLLM({ system: IDEA_SYSTEM, prompt: `Permintaan user: """${trimmedMessage.slice(0, 600)}"""`, apiKey, json: true, fast: true, temperature: 0.7, maxTokens: 900, timeoutMs: 45_000 });
-          const ideas = parseIdeas(out.text);
-          if (ideas.length === 0) throw new Error("balasan model tidak berisi ide");
-          teamSession.ideaOptions = ideas;
-          teamSession.updatedAt = new Date().toISOString();
-          await saveSession(teamSession);
-          projectDirectReply = formatIdeas(ideas);
-        } catch (err) {
-          projectDirectReply = ideaFailedMessage((err as Error).message);
-        }
-      }
-    }
-
-    // D5. Check untuk Analisis Proyek / Codebase di Tahap Ideation (Belum Ada Tim Terbentuk)
-    if (projectDirectReply === null && activeProjectId) {
-      const session = await getSession(activeProjectId);
-      if (session && (session.pipelineStage === "ideation" || (await listTeams(activeProjectId)).filter(t => t.kind !== "executive").length === 0)) {
-        const isProjectBriefOrFolder = !!ideationBrief || isProjectBrief(trimmedMessage, hasRealFolder);
-
-        if (isProjectBriefOrFolder && (trimmedMessage.length >= 15 || hasRealFolder || ideationBrief)) {
-          const folderSnippet = attachedItem?.textSnippet || (attachedItem?.files ? `Daftar file: ${(attachedItem.files || []).slice(0, 30).map((f: any) => f.path).join(", ")}` : undefined);
-          const analysis = await analyzeProjectIdea(ideationBrief || trimmedMessage, apiKey, hasRealFolder ? folderSnippet : undefined);
-
-          if (analysis.projectTitle && analysis.projectTitle !== "Proyek Inovasi Baru" && !session.title.includes(":")) {
-            session.title = analysis.projectTitle;
-          }
-          session.recommendedDivisions = analysis.recommendedDivisions.map(d => d.kind);
-          session.updatedAt = new Date().toISOString();
-          await saveSession(session);
-
-          projectDirectReply = formatAnalysis({
-            title: session.title,
-            summary: analysis.executiveSummary,
-            strengths: analysis.strengths?.length ? analysis.strengths : ["Masalah yang mau diselesaikan cukup jelas dan banyak dialami orang."],
-            weaknesses: analysis.weaknesses?.length ? analysis.weaknesses : ["Belum terbukti ada orang yang mau bayar. Perlu dicek dulu ke calon pengguna."],
-            divisions: analysis.recommendedDivisions.map((d) => ({ name: d.name, reason: d.reason })),
-          });
-          teamPicker = buildTeamPicker(analysis.recommendedDivisions.map((d) => ({ kind: d.kind, reason: d.reason })));
-        }
-      }
+    // D4. Alur proyek tim (ide → bedah → bentuk tim → kerja): keputusan di lib/teamFlow.ts (decideFlow),
+    // eksekusi di lib/teamFlowRunner.ts. Sapaan mengikuti gaya user (gw/lu, saya/Anda, aku/kamu).
+    let teamPicker: TeamPicker | undefined;
+    if (projectDirectReply === null && flowAction && teamSession && flowCtx) {
+      const pastUser = ((await getConversation(convId))?.messages || []).filter((m) => m.role === "user").map((m) => m.content).reverse();
+      const voice = detectVoice([trimmedMessage, ...pastUser.slice(0, 20)]);
+      const folderSnippet = hasRealFolder
+        ? attachedItem?.textSnippet || (attachedItem?.files ? `Daftar file: ${(attachedItem.files || []).slice(0, 30).map((f: { path: string }) => f.path).join(", ")}` : undefined)
+        : undefined;
+      const out = await runTeamFlow(flowAction, { session: teamSession, projectId: activeProjectId, ctx: flowCtx, voice, apiKey, folderSnippet });
+      projectDirectReply = out.reply;
+      teamPicker = out.picker;
     }
 
     if (projectDirectReply === null && (editFileMatch || editWebsiteMatch)) {
