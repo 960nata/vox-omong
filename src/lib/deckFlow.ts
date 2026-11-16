@@ -4,12 +4,7 @@
  * Fungsi murni supaya gampang dites.
  */
 
-export interface ChatTurn {
-  role: "user" | "assistant";
-  content: string;
-  hasSlides?: boolean;
-  hasDoc?: boolean;
-}
+import type { Focus } from "./conversationState";
 
 /** Kata yang jelas menunjuk ke website / aplikasi, bukan deck. */
 const WEB_EXPLICIT = /\b(website|web|situs|landing(?:\s*page)?|html|dashboard|aplikasi|app|game|kalkulator|toko online|company profile)\b/i;
@@ -29,17 +24,15 @@ export function isWebExplicit(message: string): boolean {
 /**
  * Apakah pesan ini bagian dari alur presentasi?
  * - menyebut ppt/slide/presentasi → ya (kecuali jelas minta website/dokumen lain)
- * - tidak menyebut, tapi 4 giliran terakhir ada deck dan pesan terdengar seperti revisi → ya
+ * - tidak menyebut, tapi fokus percakapan (state tersimpan) adalah deck dan pesan terdengar seperti revisi → ya
  */
-export function isDeckMessage(message: string, recent: ChatTurn[]): boolean {
+export function isDeckMessage(message: string, focus: Focus): boolean {
   const m = message.trim();
   if (!m) return false;
   if (isWebExplicit(m) && !DECK_WORDS.test(m)) return false;
   if (OTHER_DOC.test(m) && !DECK_WORDS.test(m)) return false;
   if (DECK_WORDS.test(m)) return true;
-  const lastDeckIdx = [...recent.slice(-4)].reverse().findIndex((t) => t.role === "assistant" && t.hasSlides);
-  if (lastDeckIdx === -1) return false;
-  return REVISE_WORDS.test(m);
+  return focus === "slides" && REVISE_WORDS.test(m);
 }
 
 export const MIN_SLIDES = 7;
@@ -74,10 +67,9 @@ const DOC_REVISE =
   /\b(tambah(?:in|kan)?|kurang(?:i)?|lebih|ganti|ubah|revisi|perbaiki|panjang(?:in|kan)?|pendek(?:in|kan)?|ringkas|detail|bagian|bab|paragraf|bahasa|formal|santai|resmi|contoh|data|angka|sumber|judul|rapi(?:in|kan)?|lengkap(?:i|in|kan)?|kembangkan|perdalam|tulis ulang)\b/i;
 
 /** Pesan lanjutan atas dokumen terakhir ("tambahin bagian risiko", "bahasanya lebih formal") tanpa menyebut kata dokumen lagi. */
-export function isDocFollowUp(message: string, recent: ChatTurn[]): boolean {
+export function isDocFollowUp(message: string, focus: Focus): boolean {
   const m = message.trim();
   if (!m || DECK_WORDS.test(m) || OTHER_DOC.test(m)) return false;
   if (isWebExplicit(m)) return false;
-  const hasDoc = recent.slice(-4).some((t) => t.role === "assistant" && t.hasDoc);
-  return hasDoc && DOC_REVISE.test(m);
+  return focus === "document" && DOC_REVISE.test(m);
 }

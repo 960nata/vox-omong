@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { addMessage, getConversation } from "@/lib/storage";
 import { generateAIResponse } from "@/lib/gemini";
 import { detectSkill, runSkill } from "@/lib/skillAgent";
-import { isDeckMessage, isDocFollowUp, isWebExplicit, type ChatTurn } from "@/lib/deckFlow";
+import { isDeckMessage, isDocFollowUp, isWebExplicit } from "@/lib/deckFlow";
+import { stateOf } from "@/lib/conversationState";
 import { detectSkillList, listSkills, resolveSkill, skillContextFor } from "@/lib/skillHub";
 import { isSkillTask, runSkillEngine } from "@/lib/skillEngine";
 import { buildWebsite, callLLM, detectCodeIntent, hasGeneratedSite, readProjectHtml, restorePreviousWebsite } from "@/lib/codeAgent";
@@ -938,10 +939,12 @@ Mau kita edit apa sekarang di website lokalmu? Bilang aja instruksinya, langsung
         role: m.role,
         content: m.content.replace(/<<lampiran:([^>\n]{1,200})>>\n?([\s\S]*?)<<\/lampiran>>/g, (_, n: string, t: string) => `[Lampiran ${n}, cuplikan: ${t.slice(0, 1500)}]`),
       })) || [];
-    // Deck terakhir di chat ini: dipakai untuk mengenali pesan lanjutan ("kurang slide", "kasih gambar") dan merevisi deck yang sama
-    const recentTurns: ChatTurn[] = (conv?.messages || []).slice(-8).map((m) => ({ role: m.role, content: m.content, hasSlides: !!m.artifact?.slides, hasDoc: m.artifact?.type === "pdf_document" }));
-    const prevDeck = [...(conv?.messages || [])].reverse().find((m) => m.role === "assistant" && m.artifact?.slides)?.artifact?.slides;
-    const prevDocArt = [...(conv?.messages || [])].reverse().find((m) => m.role === "assistant" && m.artifact?.type === "pdf_document")?.artifact;
+    // State tersimpan: fokus percakapan (deck/dokumen) menentukan apakah pesan revisi tanpa kata kunci milik artefak itu
+    const convState = stateOf(conv);
+    const focusMsg = convState.artifactMessageId ? conv?.messages.find((m) => m.id === convState.artifactMessageId) : undefined;
+    const lastAssistantWith = (pick: (a: ArtifactItem) => boolean) => [...(conv?.messages || [])].reverse().find((m) => m.role === "assistant" && m.artifact && pick(m.artifact))?.artifact;
+    const prevDeck = (convState.focus === "slides" ? focusMsg?.artifact?.slides : undefined) ?? lastAssistantWith((a) => !!a.slides)?.slides;
+    const prevDocArt = (convState.focus === "document" ? focusMsg?.artifact : undefined) ?? lastAssistantWith((a) => a.type === "pdf_document");
     const prevDoc = prevDocArt?.pdfContent ? { title: prevDocArt.title || "Dokumen", subtitle: prevDocArt.summary, markdown: prevDocArt.pdfContent, theme: prevDocArt.docTheme, letter: prevDocArt.letter } : undefined;
 
     // 4. Coding website sungguhan (buat baru / edit / undo) atau jawaban AI biasa
@@ -1151,9 +1154,9 @@ Mau kita edit apa sekarang di website lokalmu? Bilang aja instruksinya, langsung
 
     const toolHit = projectDirectReply === null && !fromBrief && !!(detectCouncil(work) || detectBrowse(work) || detectAudit(work) || detectDesignAdvice(work) || detectDocsQuestion(work) || detectUiReview(work));
     // Lagi di alur presentasi: pesan ini lanjutan/permintaan deck, bukan edit website (walau project punya website)
-    const deckMode = projectDirectReply === null && !fromBrief && !toolHit && isDeckMessage(work, recentTurns.slice(0, -1));
+    const deckMode = projectDirectReply === null && !fromBrief && !toolHit && isDeckMessage(work, convState.focus);
     // Sama untuk dokumen: "tambahin bagian risiko" setelah dokumen jadi = revisi dokumen itu
-    const docMode = !deckMode && projectDirectReply === null && !fromBrief && !toolHit && !!prevDoc && isDocFollowUp(work, recentTurns.slice(0, -1));
+    const docMode = !deckMode && projectDirectReply === null && !fromBrief && !toolHit && !!prevDoc && isDocFollowUp(work, convState.focus);
     // Permintaan jelas untuk invoice / tabel / dokumen / surat / slide ("buatkan invoice ..."): jangan dibajak jadi edit website
     const explicitSkill = !deckMode && !docMode && projectDirectReply === null && !fromBrief && !toolHit && !!detectSkill(work) && !isWebExplicit(work);
     const skillMode = deckMode || docMode || explicitSkill;

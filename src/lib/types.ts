@@ -170,6 +170,18 @@ export interface Conversation {
   createdAt: string;
   updatedAt: string;
   messages: Message[];
+  /** State tersimpan (fokus deck/dokumen); tidak ada = percakapan lama, diturunkan dari riwayat. */
+  state?: ConversationState;
+}
+
+export interface ConversationState {
+  /** Artefak yang sedang dikerjakan; pesan revisi tanpa kata kunci diarahkan ke sini. */
+  focus: "slides" | "document" | "other" | null;
+  /** Pesan asisten yang memuat artefak fokus. */
+  artifactMessageId?: string;
+  /** Balasan asisten sejak artefak fokus terakhir dibuat/direvisi. */
+  idleReplies: number;
+  updatedAt?: string;
 }
 
 export type AIMode =

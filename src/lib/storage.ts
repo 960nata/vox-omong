@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { Conversation, Message } from "./types";
+import { nextState, stateOf } from "./conversationState";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const DB_FILE = path.join(DATA_DIR, "conversations.json");
@@ -210,6 +211,8 @@ export async function addMessage(
       attachedItem: message.attachedItem,
     };
 
+    // State disimpan di tulisan yang sama dengan pesan asisten: tidak ada jeda di mana pesan dan state tidak cocok
+    if (message.role === "assistant") conv.state = nextState(stateOf(conv), message.artifact, newMessage.id, now);
     conv.messages.push(newMessage);
     conv.updatedAt = now;
 
