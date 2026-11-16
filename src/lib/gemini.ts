@@ -2,6 +2,7 @@ import { ArtifactItem, ArtifactFile, InvoiceData, SpreadsheetData, SlideDeckData
 import { compressWithHeadroom, localCodeContext } from "./tokenFusion";
 import { recordLlmUsage } from "./tokenTracker";
 import { MODEL_CREDIT_MULTIPLIERS } from "./tokenPricing";
+import { routerModel } from "./routerModels";
 
 interface MessageHistoryItem {
   role: "user" | "assistant";
@@ -299,12 +300,11 @@ export async function generateAIResponse({
           chatModel = "claude-haiku-5.5";
         } else if (aiMode && aiMode in MODEL_CREDIT_MULTIPLIERS) {
           chatModel = aiMode;
-        } else if (aiMode === "opus-5.5" || (aiMode === "opus" && process.env.AI_GATEWAY_KEY_PREMIUM)) {
-          chatModel = process.env.AI_GATEWAY_KEY_PREMIUM ? "claude-opus-5.5" : "claude-haiku-5.5";
-          chatKey = (process.env.AI_GATEWAY_KEY_PREMIUM) || bearerKey;
+        } else if (aiMode === "opus-5.5" || aiMode === "opus") {
+          // Key hemat (Prime) melayani Opus juga; lane Premium ~18x lebih mahal dan bisa membalas kosong
+          chatModel = "claude-opus-5.5";
         } else if (aiMode === "opus-5.0") {
-          chatModel = process.env.AI_GATEWAY_KEY_PREMIUM ? "claude-opus-5" : "claude-haiku-5.5";
-          chatKey = (process.env.AI_GATEWAY_KEY_PREMIUM) || bearerKey;
+          chatModel = "claude-opus-5";
         } else if (aiMode === "sonnet-5.5") {
           chatModel = "claude-sonnet-5.5";
         } else if (aiMode === "sonnet-5.0") {
@@ -348,13 +348,14 @@ export async function generateAIResponse({
             const isHeavy = /opus|sonnet|gpt-6/.test(m);
             const res = await fetch(endpoint, {
               method: "POST",
-              signal: AbortSignal.timeout(isHeavy ? 9000 : 20000),
+              // Opus/Sonnet sering >9 detik: batas lama memutus request yang sebetulnya akan berhasil
+              signal: AbortSignal.timeout(isHeavy ? 45000 : 25000),
               headers: {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${chatKey}`,
               },
               body: JSON.stringify({
-                model: m,
+                model: routerModel(m),
                 messages: [
                   { role: "system", content: systemInstruction },
                   { role: "user", content: userMessageContent },

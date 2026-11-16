@@ -1,4 +1,5 @@
 import { callLLM } from "./codeAgent";
+import { routerModel } from "./routerModels";
 
 /**
  * Council: satu pertanyaan dijawab beberapa "anggota" secara paralel, lalu satu ketua
@@ -45,7 +46,7 @@ async function askFree(model: string, prompt: string, maxTokens: number): Promis
     const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] }),
+      body: JSON.stringify({ model: routerModel(model), max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] }),
       signal: AbortSignal.timeout(40000),
     });
     if (!res.ok) return null;

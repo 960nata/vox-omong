@@ -8,6 +8,7 @@ import { VOX_PROMPT } from "./voxRuntime";
 import { repairInlineScripts } from "./jsRepair";
 import { readOpenAICompletion } from "./llmStream";
 import { recordLlmUsage } from "./tokenTracker";
+import { routerModel } from "./routerModels";
 import { MODEL_CREDIT_MULTIPLIERS } from "./tokenPricing";
 import type { AIMode } from "./types";
 import { callNativeFreeLLM } from "./freellmEngine";
@@ -227,14 +228,14 @@ export async function callLLM({
 
   // 2. AI Gateway (sk_live_… / custom / user gateway)
   const userGwUrl = process.env.USER_GATEWAY_URL || "https://aiinvestdesk.com/api/v1/ai/gateway";
-  const userGwKey = process.env.USER_GATEWAY_KEY || "aigw_51d115a24f09241184a426302c08879e";
+  const userGwKey = process.env.USER_GATEWAY_KEY || "";
   const isUserPrivateRequested = Boolean(
     (apiKey && apiKey.startsWith("aigw_")) ||
     (prefer && prefer.some((x) => x.toLowerCase().includes("user-private") || x.toLowerCase().includes("aigw")))
   );
 
   // Jika user memilih Gateway Pribadi lu secara eksplisit:
-  if (isUserPrivateRequested) {
+  if (isUserPrivateRequested && ((apiKey && apiKey.startsWith("aigw_")) || userGwKey)) {
     try {
       const activeUserKey = (apiKey && apiKey.startsWith("aigw_")) ? apiKey : userGwKey;
       const res = await fetch(userGwUrl, {
@@ -402,11 +403,10 @@ export async function callLLM({
         // Attempt 0: Model yang dipilih lu
         // Attempt 1: Failover ke DeepSeek Flash (kenceng & stabil 2s)
         // Attempt 2: Failover ke Gateway Pribadi / Model Free
-        const model = attempt === 0 ? targetModel : attempt === 1 ? "deepseek-v4.1-flash" : "nemotron-3.5-lightning:free";
-        const isOpus = model.startsWith("claude-opus");
-        const requestKey = (isOpus && process.env.AI_GATEWAY_KEY_PREMIUM)
-          ? process.env.AI_GATEWAY_KEY_PREMIUM
-          : activeGwKey;
+        // Nama alias (claude-opus-5.0, qwen-max, ...) dibalas 404 oleh router: selalu kirim ID katalog
+        const model = routerModel(attempt === 0 ? targetModel : attempt === 1 ? "deepseek-v4.1-flash" : "nemotron-3.5-lightning:free");
+        // Key hemat (Prime) untuk semua model, termasuk Opus: lane Premium ~18x lebih mahal dan bisa membalas kosong (thinking)
+        const requestKey = activeGwKey;
 
         // Model berat (Claude Sonnet/Opus/GPT-6) dijaga max 9 detik agar tidak kena 499 hanging
         const isHeavyModel = /opus|sonnet|gpt-6/.test(model);
@@ -450,7 +450,7 @@ export async function callLLM({
             if (out.text) {
               void recordLlmUsage({
                 model: out.model || model,
-                source: model === "claude-opus-5.5" ? "classai_premium" : "classai_prime",
+                source: "classai_prime",
                 promptTokens: out.promptTokens || Math.round((system.length + prompt.length) / 4),
                 completionTokens: out.completionTokens || Math.round(out.text.length / 4),
               }).catch(() => {});
