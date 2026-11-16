@@ -41,7 +41,7 @@ import { hasStudioSession } from "@/lib/studioAuth";
 import { runReActLoop } from "@/lib/agentic/reactLoop";
 import { artifactProblem } from "@/lib/agentic/verify";
 import { looksLikeUnroutedTask, routeIntent, type Intent } from "@/lib/intentRouter";
-import { asksForTeams, claimsTeamFlow, isProjectBrief, isTeamSetupRequest as wantsTeamSetup, singleDivision } from "@/lib/teamFlow";
+import { asksForTeams, claimsTeamFlow, formatAnalysis, formatIdeas, IDEA_SYSTEM, ideaFailedMessage, teamListMessage, teamsFormedMessage, isProjectBrief, isTeamSetupRequest as wantsTeamSetup, parseIdeas, pickIdea, singleDivision, wantsIdeaSuggestions } from "@/lib/teamFlow";
 import { isBareCommand } from "@/lib/terminalRuntime";
 import { findEmails } from "@/lib/email";
 import { runVisualCritic } from "@/lib/agentic/visualCritic";
@@ -174,8 +174,10 @@ export async function POST(req: Request) {
     let routedIntent: Intent = "chat";
     // Proyek dengan sesi tim: ide/brief dan "buat tim" milik alur tim (D4/D5 di bawah), bukan agent umum / Autopilot
     const teamSession = activeProjectId ? await getSession(activeProjectId).catch(() => null) : null;
+    // Folder kosong (0 file) bukan codebase: jangan dilaporkan "berhasil dimuat", perlakukan pesannya saja
+    const hasRealFolder = attachedItem?.type === "folder" && Number(attachedItem.itemCount || attachedItem.files?.length || 0) > 0;
     const teamCount = teamSession ? (await listTeams(activeProjectId).catch(() => [])).filter((t) => t.kind !== "executive").length : 0;
-    const teamFlow = !!teamSession && projectDirectReply === null && claimsTeamFlow(trimmedMessage, { stage: teamSession.pipelineStage, teamCount, hasFolder: attachedItem?.type === "folder" });
+    const teamFlow = !!teamSession && projectDirectReply === null && claimsTeamFlow(trimmedMessage, { stage: teamSession.pipelineStage, teamCount, hasFolder: hasRealFolder, ideaCount: teamSession.ideaOptions?.length ?? 0 });
     {
       const ownRoute = teamFlow || projectDirectReply !== null || !!attachedItem || !!imageUri || !!imageDataUri || OWN_ROUTE.test(work) ||
         !!detectSkill(work) || isVideoRequest(work) || !!planChain(work) || isBareCommand(work) || !!detectAgentTask(work) || findEmails(work).length > 0;
@@ -475,7 +477,7 @@ ${modelRows ? `📊 **Rincian per Model:**\n${modelRows}\n\n` : ""}_💡 Catatan
     }
 
     // B1-Attached: Jika user melampirkan folder atau file (attachedItem), utamakan memproses lampiran tersebut
-    if (projectDirectReply === null && attachedItem) {
+    if (projectDirectReply === null && attachedItem && !teamFlow) {
       if (attachedItem.type === "folder") {
         const fileListStr = (attachedItem.files || [])
           .slice(0, 35)
@@ -656,7 +658,7 @@ AI bisa langsung membaca dan mengedit bagian mana pun dari kode ini di lokal, mi
     // "timnya mana": tim sudah ada → tunjukkan, bukan dikerjakan agent umum
     if (projectDirectReply === null && teamSession && teamCount > 0 && asksForTeams(trimmedMessage) && !wantsTeamSetup(trimmedMessage)) {
       const teams = (await listTeams(activeProjectId)).filter((t) => t.kind !== "executive");
-      projectDirectReply = `👥 **Tim AI di proyek ${teamSession.title}:**\n\n${teams.map((t) => `- **${t.name}** — ${t.members.length} agent: ${t.members.map((m) => m.name).join(", ")}`).join("\n")}\n\nBuka panel **Riwayat & Divisi** di kiri untuk masuk ke grup tiap tim dan kasih tugas, atau ketik tugasnya di sini.`;
+      projectDirectReply = teamListMessage(teamSession.title, teams.map((t) => ({ name: t.name, members: t.members.map((m) => m.name) })));
     }
 
     if (projectDirectReply === null && isTeamSetupRequest && activeProjectId) {
@@ -672,7 +674,7 @@ AI bisa langsung membaca dan mengedit bagian mana pun dari kode ini di lokal, mi
           session.pipelineStage = "development";
           session.updatedAt = new Date().toISOString();
           await saveSession(session);
-          projectDirectReply = `✅ **1 Divisi Tunggal Berhasil Diaktifkan: ${TEAM_NAMES[kind] || kind}!**\n\nDivisi ini siap bekerja secara terfokus untuk proyek **${session.title}**. Karena kamu memilih hanya 1 divisi, tim ini dapat langsung mengeksekusi instruksi tanpa birokrasi sidang Dewan Direksi.\n\nKamu bisa langsung masuk ke grup tim di panel kiri (Riwayat & Divisi) atau berikan instruksi tugas di sini!`;
+          projectDirectReply = teamsFormedMessage([TEAM_NAMES[kind] || kind], false);
         } else {
           const recs = session.recommendedDivisions || ["founder", "developer", "marketing"];
           const existing = await listTeams(activeProjectId);
@@ -688,7 +690,32 @@ AI bisa langsung membaca dan mengedit bagian mana pun dari kode ini di lokal, mi
           session.pipelineStage = "prd";
           session.updatedAt = new Date().toISOString();
           await saveSession(session);
-          projectDirectReply = `🏛️ **Tim Rekomendasi Berhasil Dibentuk!**\n\nDivisi aktif: ${all.filter(t => t.kind !== "executive").map(t => `**${t.name}**`).join(", ")}.\n\n**Dewan Direksi (Executive Board)** juga telah diaktifkan untuk menyelaraskan visi dan memimpin voting konsensus sebelum eksekusi dimulai. Silakan cek menu Riwayat & Divisi di panel samping!`;
+          const formed = all.filter(t => t.kind !== "executive");
+          projectDirectReply = teamsFormedMessage(formed.map((t) => t.name), formed.length >= 2);
+        }
+      }
+    }
+
+    // D4b. Ideation tanpa ide konkret: tawarkan ide bernomor; "ide 1" / "yang kedua" langsung dibedah di D5
+    let ideationBrief: string | null = null;
+    if (projectDirectReply === null && teamFlow && teamSession && !wantsTeamSetup(trimmedMessage) && !asksForTeams(trimmedMessage)) {
+      const options = teamSession.ideaOptions || [];
+      const picked = pickIdea(trimmedMessage, options.length);
+      if (picked !== null) {
+        ideationBrief = `${options[picked].title}: ${options[picked].pitch}`;
+        teamSession.ideaOptions = undefined;
+        await saveSession(teamSession);
+      } else if (wantsIdeaSuggestions(trimmedMessage) && !hasRealFolder) {
+        try {
+          const out = await callLLM({ system: IDEA_SYSTEM, prompt: `Permintaan user: """${trimmedMessage.slice(0, 600)}"""`, apiKey, json: true, fast: true, temperature: 0.7, maxTokens: 900, timeoutMs: 45_000 });
+          const ideas = parseIdeas(out.text);
+          if (ideas.length === 0) throw new Error("balasan model tidak berisi ide");
+          teamSession.ideaOptions = ideas;
+          teamSession.updatedAt = new Date().toISOString();
+          await saveSession(teamSession);
+          projectDirectReply = formatIdeas(ideas);
+        } catch (err) {
+          projectDirectReply = ideaFailedMessage((err as Error).message);
         }
       }
     }
@@ -697,11 +724,11 @@ AI bisa langsung membaca dan mengedit bagian mana pun dari kode ini di lokal, mi
     if (projectDirectReply === null && activeProjectId) {
       const session = await getSession(activeProjectId);
       if (session && (session.pipelineStage === "ideation" || (await listTeams(activeProjectId)).filter(t => t.kind !== "executive").length === 0)) {
-        const isProjectBriefOrFolder = isProjectBrief(trimmedMessage, attachedItem?.type === "folder");
+        const isProjectBriefOrFolder = !!ideationBrief || isProjectBrief(trimmedMessage, hasRealFolder);
 
-        if (isProjectBriefOrFolder && (trimmedMessage.length >= 15 || attachedItem)) {
+        if (isProjectBriefOrFolder && (trimmedMessage.length >= 15 || hasRealFolder || ideationBrief)) {
           const folderSnippet = attachedItem?.textSnippet || (attachedItem?.files ? `Daftar file: ${(attachedItem.files || []).slice(0, 30).map((f: any) => f.path).join(", ")}` : undefined);
-          const analysis = await analyzeProjectIdea(trimmedMessage, apiKey, folderSnippet);
+          const analysis = await analyzeProjectIdea(ideationBrief || trimmedMessage, apiKey, hasRealFolder ? folderSnippet : undefined);
 
           if (analysis.projectTitle && analysis.projectTitle !== "Proyek Inovasi Baru" && !session.title.includes(":")) {
             session.title = analysis.projectTitle;
@@ -710,46 +737,13 @@ AI bisa langsung membaca dan mengedit bagian mana pun dari kode ini di lokal, mi
           session.updatedAt = new Date().toISOString();
           await saveSession(session);
 
-          const strengthsText = (analysis.strengths && analysis.strengths.length > 0)
-            ? analysis.strengths.map(s => `• 🚀 ${s}`).join("\n")
-            : "• 🚀 Potensi pasar yang jelas dan relevan dengan kebutuhan pengguna saat ini.\n• 🚀 Alur kerja yang dapat diotomasi dengan agen AI.";
-
-          const weaknessesText = (analysis.weaknesses && analysis.weaknesses.length > 0)
-            ? analysis.weaknesses.map(w => `• ⚠️ ${w}`).join("\n")
-            : "• ⚠️ Perlu validasi batasan regulasi dan kepatuhan hukum.\n• ⚠️ Kesiapan arsitektur teknis dan mitigasi risiko transaksi.";
-
-          const divisionsText = analysis.recommendedDivisions.map((d, i) => `${i + 1}. **${d.name}** (\`${d.kind}\`)\n   - *Peran*: ${d.reason}\n   - *Fokus Awal*: ${d.initialFocus}`).join("\n\n");
-
-          projectDirectReply = `📊 **Hasil Analisis Proyek: ${session.title}**
-
-${analysis.executiveSummary}
-
----
-
-### 💡 Kelebihan & Peluang Utama (Strengths)
-${strengthsText}
-
-### ⚠️ Kekurangan & Risiko Kritis (Weaknesses & Risks)
-${weaknessesText}
-
----
-
-### 👥 Rekomendasi Struktur Tim & Divisi AI
-${divisionsText}
-
----
-
-🎯 **Pilihan Mode Pengembangan:**
-1. **Opsi A: Bentuk Tim Lengkap (Multi-Divisi + Dewan Direksi)**
-   Cocok untuk eksekusi menyeluruh dari PRD, arsitektur teknis, hingga pemasaran. Dewan Direksi akan aktif mengawal konsensus antar ketua divisi.
-   👉 *Ketik: **"bentuk tim rekomendasi"***
-
-2. **Opsi B: Bentuk Hanya 1 Divisi Tunggal**
-   Jika kamu ingin langsung fokus pada implementasi teknis (misal hanya Tim Developer), tim akan bekerja terfokus tanpa perlu sidang Dewan Direksi.
-   👉 *Ketik: **"bentuk tim developer saja"*** (atau divisi lain yang kamu inginkan)
-
-3. **Opsi C: Kustomisasi Sendiri**
-   Pilih atau tambahkan divisi manual kapan saja lewat tombol **Riwayat & Divisi** di panel kiri.`;
+          projectDirectReply = formatAnalysis({
+            title: session.title,
+            summary: analysis.executiveSummary,
+            strengths: analysis.strengths?.length ? analysis.strengths : ["Masalah yang mau diselesaikan cukup jelas dan banyak dialami orang."],
+            weaknesses: analysis.weaknesses?.length ? analysis.weaknesses : ["Belum terbukti ada orang yang mau bayar. Perlu dicek dulu ke calon pengguna."],
+            divisions: analysis.recommendedDivisions.map((d) => ({ name: d.name, reason: d.reason })),
+          });
         }
       }
     }

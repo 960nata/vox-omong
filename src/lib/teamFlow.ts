@@ -4,7 +4,8 @@
  * (yang hasilnya cuma file .md atau skrip Python, bukan divisi tim yang benar-benar terbentuk).
  * Fungsi murni supaya gampang dites.
  */
-import type { PipelineStage } from "./teamTypes";
+import type { IdeaOption, PipelineStage } from "./teamTypes";
+import { parseLoose } from "./jsonLoose";
 
 const DIVISIONS = "developer|marketing|founder|trading|creative|research|career|custom";
 
@@ -36,16 +37,136 @@ export function isProjectBrief(message: string, hasFolder = false): boolean {
   return message.trim().length >= 15 && /\b(proyek|project|ide|produk|bisnis|startup|start\s*up|aplikasi|platform|website|buatkan|bikin|kembangkan|analisis|analisa|bedah|konsep|investasi)\b/i.test(message);
 }
 
+/**
+ * User belum punya ide konkret dan minta disarankan ("ide startup apa yang ok", "tanya idenya dulu").
+ * Pesan yang sudah menjelaskan idenya sendiri ("ide gw: aplikasi kasir UMKM") bukan termasuk.
+ */
+export function wantsIdeaSuggestions(message: string): boolean {
+  const m = message.trim();
+  if (m.length > 160) return false;
+  if (/\bide(?:nya|ku|\s+(?:gw|gue|aku|saya))?\s*(?::|adalah|yaitu|berupa)/i.test(m)) return false;
+  if (!/\b(?:ide|idea|ide-ide)(?:nya)?\b/i.test(m)) return false;
+  return /\b(?:apa|apaan|mana|yang\s+(?:ok|oke|bagus|cocok|mateng|cuan|menarik)|rekomendasi(?:in|kan)?|saran(?:in|kan)?|kasih|cariin|usul(?:in)?|brainstorm|nanya|tanya|dulu|mateng|cuan)\b/i.test(m);
+}
+
+const ORDINAL: Record<string, number> = { pertama: 1, kesatu: 1, kedua: 2, ketiga: 3, keempat: 4, kelima: 5 };
+
+/** "ID 1", "ide 2 aja", "yang kedua", "3" → indeks 0-based; null kalau bukan pilihan. */
+export function pickIdea(message: string, count: number): number | null {
+  if (count <= 0) return null;
+  const m = message.trim().toLowerCase();
+  if (m.length > 60) return null;
+  const num =
+    m.match(/^\s*#?([1-9])\s*[.!]?\s*$/)?.[1] ??
+    m.match(/\b(?:ide|id|idea|nomor|no\.?|opsi|pilihan|pilih|ambil|yang)\s*(?:ke-?\s*|nomor\s*|no\.?\s*)?#?([1-9])\b/)?.[1];
+  let n = num ? Number(num) : null;
+  if (n === null) {
+    const ord = m.match(/\b(?:yang\s+|ide\s+|opsi\s+)?(pertama|kesatu|kedua|ketiga|keempat|kelima)\b/)?.[1];
+    if (ord) n = ORDINAL[ord];
+  }
+  return n !== null && n >= 1 && n <= count ? n - 1 : null;
+}
+
 export interface TeamFlowCtx {
   stage: PipelineStage;
   /** Jumlah divisi non-executive yang sudah terbentuk. */
   teamCount: number;
   hasFolder?: boolean;
+  /** Jumlah ide yang terakhir ditawarkan (menunggu dipilih). */
+  ideaCount?: number;
 }
 
 /** Apakah pesan ini milik alur tim proyek (dan harus dijalankan sebelum Autopilot / router)? */
 export function claimsTeamFlow(message: string, ctx: TeamFlowCtx): boolean {
   if (isTeamSetupRequest(message) || asksForTeams(message)) return true;
   const ideation = ctx.stage === "ideation" || ctx.teamCount === 0;
-  return ideation && isProjectBrief(message, ctx.hasFolder);
+  if (!ideation) return false;
+  if (pickIdea(message, ctx.ideaCount ?? 0) !== null) return true;
+  return wantsIdeaSuggestions(message) || isProjectBrief(message, ctx.hasFolder);
+}
+
+export const IDEA_SYSTEM = `Kamu mentor startup Indonesia yang realistis. Beri TEPAT 3 ide startup yang bisa mulai dengan modal kecil dan cepat menghasilkan uang.
+Tiap ide: pelanggan jelas, masalah yang sudah mereka bayar untuk diselesaikan, dan cara dapat uang.
+Hormati preferensi user kalau ada (bidang, modal, skill). Jangan mengarang angka pasar spesifik.
+Balas JSON saja: {"ideas":[{"title":"<nama 1-3 kata>","pitch":"<1 kalimat: untuk siapa, masalahnya, cara cuan>"}]}`;
+
+export function parseIdeas(text: string): IdeaOption[] {
+  const d = parseLoose<{ ideas?: { title?: unknown; pitch?: unknown }[] }>(text);
+  return (d?.ideas || [])
+    .map((i) => ({ title: String(i.title || "").trim().slice(0, 60), pitch: String(i.pitch || "").trim().slice(0, 300) }))
+    .filter((i) => i.title && i.pitch)
+    .slice(0, 5);
+}
+
+/* Pesan alur tim: bahasa sehari-hari, tanpa emoji/simbol, selalu diakhiri satu langkah berikutnya yang jelas. */
+
+export const WELCOME_MESSAGE = `Halo! Di sini kita bangun proyek kamu bareng-bareng dalam 3 langkah:
+
+1. Tentukan ide. Ceritain ide kamu, atau ketik "kasih ide" kalau belum punya.
+2. Aku bedah idenya: apa bagusnya, apa risikonya, dan tim AI yang cocok.
+3. Kamu pilih timnya, lalu tim itu siap kerja.
+
+Kalau sudah punya folder proyek, lampirkan saja, nanti aku pelajari dulu.
+
+Mau mulai dari mana? Ceritain ide kamu, atau ketik "kasih ide".`;
+
+export function formatIdeas(ideas: IdeaOption[]): string {
+  return `Langkah 1 dari 3: pilih ide
+
+Ini ${ideas.length} ide yang bisa dimulai dengan modal kecil:
+
+${ideas.map((i, n) => `${n + 1}. ${i.title}. ${i.pitch}`).join("\n")}
+
+Ketik nomornya, misalnya "ide 1". Kalau belum sreg, ceritain ide kamu sendiri.`;
+}
+
+export function ideaFailedMessage(reason: string): string {
+  return `Maaf, aku belum berhasil menyusun ide barusan (${reason}). Coba kirim lagi, atau ceritain ide kamu sendiri.`;
+}
+
+export interface AnalysisView {
+  title: string;
+  summary: string;
+  strengths: string[];
+  weaknesses: string[];
+  divisions: { name: string; reason: string }[];
+}
+
+export function formatAnalysis(a: AnalysisView): string {
+  const list = (xs: string[]) => xs.map((x) => `- ${x}`).join("\n");
+  return `Langkah 2 dari 3: bedah ide
+
+Ide: ${a.title}
+
+${a.summary}
+
+Yang bagus:
+${list(a.strengths)}
+
+Yang perlu diwaspadai:
+${list(a.weaknesses)}
+
+Tim AI yang aku sarankan:
+${a.divisions.map((d, i) => `${i + 1}. ${d.name}. ${d.reason}`).join("\n")}
+
+Langkah berikutnya, pilih salah satu:
+- Ketik "bentuk tim" untuk membentuk semua tim di atas.
+- Ketik "tim developer saja" kalau mau mulai dari satu tim dulu.`;
+}
+
+export function teamsFormedMessage(names: string[], withBoard: boolean): string {
+  const joined = names.length > 1 ? `${names.slice(0, -1).join(", ")} dan ${names[names.length - 1]}` : names[0] || "Tim";
+  return `Langkah 3 dari 3: tim sudah jadi
+
+Tim kamu: ${joined}.${withBoard ? " Ada juga Dewan Direksi yang menjaga semua tim tetap searah." : ""}
+
+Buka panel Riwayat & Divisi di sebelah kiri untuk ngobrol dan kasih tugas ke tiap tim.`;
+}
+
+export function teamListMessage(project: string, teams: { name: string; members: string[] }[]): string {
+  return `Ini tim AI di proyek ${project}:
+
+${teams.map((t) => `- ${t.name}: ${t.members.join(", ")} (${t.members.length} orang)`).join("\n")}
+
+Buka panel Riwayat & Divisi di sebelah kiri untuk ngobrol dan kasih tugas ke tim mana pun.`;
 }

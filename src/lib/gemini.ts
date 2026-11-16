@@ -238,8 +238,8 @@ export async function generateAIResponse({
     const isOpenAI = gatewayUrl.includes("classai.id") || gatewayUrl.endsWith("/v1") || gatewayUrl.includes("/chat/completions");
 
     try {
-      // Optimasi Token: Ambil maksimal 3 riwayat terakhir dan batasi panjang per pesan agar prompt hemat
-      const recentHistory = history.slice(-3);
+      // Riwayat cukup panjang supaya jawaban pendek ("ID 1", "yang kedua") masih nyambung ke daftar yang baru ditawarkan
+      const recentHistory = history.slice(-6);
       let conversationContext = "";
       if (recentHistory.length > 0) {
         conversationContext =
@@ -247,7 +247,7 @@ export async function generateAIResponse({
           recentHistory
             .map(
               (m) =>
-                `${m.role === "assistant" ? "AI" : "User"}: ${m.content.slice(0, 240)}`
+                `${m.role === "assistant" ? "AI" : "User"}: ${m.content.slice(0, 1200)}`
             )
             .join("\n") +
           "\n\n";

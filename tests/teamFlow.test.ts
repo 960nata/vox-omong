@@ -32,3 +32,38 @@ describe("alur tim proyek menang atas Autopilot / agent umum", () => {
     expect(claimsTeamFlow("bikin landing page untuk produk ini", withTeams)).toBe(false);
   });
 });
+
+import { formatIdeas, parseIdeas, pickIdea, wantsIdeaSuggestions } from "../src/lib/teamFlow";
+
+describe("tahap ideation: tawarkan ide, lalu pilih", () => {
+  it("minta ide tanpa ide konkret dikenali", () => {
+    expect(wantsIdeaSuggestions("IDE STARUP APA NIH YANG OK YA")).toBe(true);
+    expect(wantsIdeaSuggestions("kitanya nanya idenya dulu bukan buat dulu")).toBe(true);
+    expect(wantsIdeaSuggestions("ANALISIS DULU DONG GW MAU IDE STARUP MATENG DAN BISA NGASILIN CUYAN CUY")).toBe(true);
+    expect(wantsIdeaSuggestions("ide gw: aplikasi kasir buat warung, gimana?")).toBe(false);
+    expect(wantsIdeaSuggestions("aku mau bikin aplikasi kasir untuk UMKM")).toBe(false);
+  });
+
+  it("jawaban pilihan dikenali dalam berbagai gaya", () => {
+    expect(pickIdea("Kalau boleh deh ID 1", 3)).toBe(0);
+    expect(pickIdea("ide 2 aja", 3)).toBe(1);
+    expect(pickIdea("yang ketiga", 3)).toBe(2);
+    expect(pickIdea("3", 3)).toBe(2);
+    expect(pickIdea("ide 4", 3)).toBeNull();
+    expect(pickIdea("ide 1", 0)).toBeNull();
+    expect(pickIdea("aku punya 2 kucing dan mau bikin toko", 3)).toBeNull();
+  });
+
+  it("jawaban pilihan diambil alur tim hanya saat ada ide yang ditawarkan", () => {
+    expect(claimsTeamFlow("Kalau boleh deh ID 1", { stage: "ideation", teamCount: 0, ideaCount: 3 })).toBe(true);
+    expect(claimsTeamFlow("Kalau boleh deh ID 1", { stage: "ideation", teamCount: 0, ideaCount: 0 })).toBe(false);
+  });
+
+  it("daftar ide dari model diparse dan diformat bernomor", () => {
+    const ideas = parseIdeas('```json\n{"ideas":[{"title":"BalikModal","pitch":"Rekon COD untuk seller."},{"title":"","pitch":"x"}]}\n```');
+    expect(ideas).toEqual([{ title: "BalikModal", pitch: "Rekon COD untuk seller." }]);
+    const text = formatIdeas(ideas);
+    expect(text).toContain("1. BalikModal. Rekon COD untuk seller.");
+    expect(text).not.toMatch(/\*\*|[\u{1F300}-\u{1FAFF}]/u);
+  });
+});

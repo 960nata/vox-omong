@@ -1,3 +1,4 @@
+import { WELCOME_MESSAGE } from "./teamFlow";
 import fs from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
@@ -384,6 +385,12 @@ Aturan Pemilihan Divisi:
 - Jika ada unsur investasi/finansial/trading, sertakan "trading".
 - Berikan alasan konkret yang spesifik menyebutkan aspek ide/kode pengguna (bukan alasan generic).
 
+Gaya bahasa (penting, pembacanya orang awam):
+- Bahasa Indonesia sehari-hari yang hangat, seperti teman yang paham bisnis. Kalimat pendek.
+- Hindari istilah teknis/bisnis dan singkatan (PRD, MVP, ICP, GTM, diferensiasi, monetisasi, mitigasi, blindspot). Kalau perlu, jelaskan dengan kata biasa.
+- Tanpa emoji dan tanpa format markdown di dalam teks.
+- "executiveSummary" maksimal 2 kalimat. Tiap poin kelebihan/kekurangan dan alasan divisi maksimal 1 kalimat.
+
 Keluarkan HANYA JSON valid sesuai format ini tanpa teks tambahan:
 {
   "projectTitle": "Judul Proyek Singkat & Menarik (3-6 kata)",
@@ -518,18 +525,7 @@ ${params.initialPrdSeed.monetizationIdea}
   const conv = await createConversation(`Proyek: ${title}`, true);
 
   if (!params.divisions || params.divisions.length === 0) {
-    const openingMsg = `👋 **Selamat datang di Sesi Proyek Baru!**
-
-Proyek ini masih dalam tahap **Discovery & Ideation** (belum ada divisi tim yang dibentuk). Di ruang umum ini, mari kita diskusikan konsep proyekmu terlebih dahulu:
-
-1. 💡 **Ceritakan ide produk atau masalah** yang ingin kamu selesaikan (target pengguna, fitur utama, dan arah pengembangannya), atau
-2. 📁 **Lampirkan folder proyek dari komputermu** jika kamu sudah memiliki codebase/proyek awal.
-
-Setelah itu, aku akan membedah:
-- 🎯 **Ringkasan Konsep & Solusi Utama**
-- 🚀 **Kelebihan & Potensi Pasar**
-- ⚠️ **Kekurangan, Risiko & Blindspots**
-- 👥 **Rekomendasi Struktur Tim Divisi AI** (Kamu bebas memilih: mau tim lengkap dengan Dewan Direksi, atau cukup 1 divisi saja seperti Tim Developer jika ingin langsung fokus ngoding!)`;
+    const openingMsg = WELCOME_MESSAGE;
 
     await addStorageMessage(conv.id, { role: "assistant", content: openingMsg });
   }

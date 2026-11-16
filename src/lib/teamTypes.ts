@@ -79,6 +79,11 @@ export interface BoardVote {
   votedAt?: string;
 }
 
+export interface IdeaOption {
+  title: string;
+  pitch: string;
+}
+
 export interface TeamSession {
   id: string;
   title: string;
@@ -88,6 +93,8 @@ export interface TeamSession {
   prdDocument?: string;
   votes?: BoardVote[];
   recommendedDivisions?: TeamKind[];
+  /** Ide yang terakhir ditawarkan di tahap ideation, menunggu dipilih ("ide 1"). */
+  ideaOptions?: IdeaOption[];
   conversationId?: string;
   createdAt: string;
   updatedAt: string;
