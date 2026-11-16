@@ -7,6 +7,8 @@ import { openPage } from "../browser";
 import { runSkill, type SkillKind } from "../skillAgent";
 import { makeVideo } from "../videoMaker";
 import { rememberSemantic, recallSemantic } from "./semanticMemory";
+import { artifactProblem } from "./verify";
+import { callMcpReadTool, isMcpProvider, listMcpTools, mcpProviderStatus } from "../mcpConnections";
 import type { AgentToolDefinition, ToolExecutionContext, ToolExecutionResult } from "./types";
 
 export interface UnifiedTool {
@@ -268,17 +270,73 @@ export const AGENT_TOOLS: Record<string, UnifiedTool> = {
           return {
             success: true,
             output: `Video berhasil dibuat: ${res.title}. ${res.reply}`,
-            artifact: (res.video as unknown) as any,
+            artifact: { id: `video-${res.video.id}`, type: "video", title: res.title, video: res.video, status: "completed" },
           };
         }
 
         const res = await runSkill(kind as SkillKind, prompt, context.apiKey);
+        const problem = artifactProblem(res?.artifact);
+        if (problem) return { success: false, output: "", error: `Artefak ${kind} gagal dibuat: ${problem}` };
 
         return {
           success: true,
           output: `Artefak ${kind} selesai dibuat. ${res.reply}`,
           artifact: res.artifact,
         };
+      } catch (err) {
+        return { success: false, output: "", error: (err as Error).message };
+      }
+    },
+  },
+
+  mcp_tools: {
+    definition: {
+      name: "mcp_tools",
+      description: "Lihat layanan MCP yang tersambung (github, supabase, vercel, dll.) dan daftar alat BACA milik satu layanan. Panggil ini sebelum mcp_call.",
+      parameters: { type: "object", properties: { provider: { type: "string", description: "Nama layanan, mis. 'github'. Kosongkan untuk melihat layanan yang tersambung." } } },
+    },
+    execute: async (args, context) => {
+      try {
+        const provider = String(args.provider || "").toLowerCase();
+        const enabled = context.mcpEnabled ?? [];
+        if (!provider) {
+          const ready = mcpProviderStatus().filter((p) => p.configured && enabled.includes(p.id)).map((p) => `${p.id}: ${p.purpose}`);
+          return { success: true, output: ready.length ? `Layanan MCP tersambung:\n${ready.join("\n")}` : "Belum ada layanan MCP yang tersambung." };
+        }
+        if (!isMcpProvider(provider)) return { success: false, output: "", error: `Layanan MCP '${provider}' tidak dikenal.` };
+        if (!enabled.includes(provider)) return { success: false, output: "", error: `Layanan MCP '${provider}' belum diaktifkan user di Pengaturan.` };
+        const tools = (await listMcpTools(provider)).filter((t) => t.readOnly).slice(0, 40);
+        // Hemat token: nama + deskripsi pendek + nama parameter saja, bukan skema penuh
+        const lines = tools.map((t) => `${t.name}(${Object.keys((t.inputSchema as { properties?: object }).properties || {}).join(", ")}): ${t.description.slice(0, 110)}`);
+        return { success: true, output: lines.length ? lines.join("\n") : "Layanan ini tidak punya alat baca." };
+      } catch (err) {
+        return { success: false, output: "", error: (err as Error).message };
+      }
+    },
+  },
+
+  mcp_call: {
+    definition: {
+      name: "mcp_call",
+      description: "Panggil satu alat BACA dari layanan MCP (mis. lihat issue/PR/isi file repo GitHub). Alat tulis ditolak.",
+      parameters: {
+        type: "object",
+        properties: {
+          provider: { type: "string", description: "Nama layanan, mis. 'github'" },
+          tool: { type: "string", description: "Nama alat dari mcp_tools" },
+          arguments: { type: "object", description: "Argumen alat (objek JSON)" },
+        },
+        required: ["provider", "tool"],
+      },
+    },
+    execute: async (args, context) => {
+      try {
+        const provider = String(args.provider || "").toLowerCase();
+        if (!isMcpProvider(provider)) return { success: false, output: "", error: `Layanan MCP '${provider}' tidak dikenal.` };
+        if (!(context.mcpEnabled ?? []).includes(provider)) return { success: false, output: "", error: `Layanan MCP '${provider}' belum diaktifkan user di Pengaturan.` };
+        const input = args.arguments && typeof args.arguments === "object" ? (args.arguments as Record<string, unknown>) : {};
+        const text = await callMcpReadTool(provider, String(args.tool || ""), input);
+        return { success: true, output: text.slice(0, 6000) };
       } catch (err) {
         return { success: false, output: "", error: (err as Error).message };
       }

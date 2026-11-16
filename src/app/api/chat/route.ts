@@ -38,10 +38,14 @@ import { rollbackCheckpoint, getOriginalContent, computeFileDiffStats } from "@/
 import { isMcpProvider, mcpProviderStatus, mcpRequiresStudioSession, runMcpReadTask } from "@/lib/mcpConnections";
 import { hasStudioSession } from "@/lib/studioAuth";
 import { runReActLoop } from "@/lib/agentic/reactLoop";
+import { artifactProblem } from "@/lib/agentic/verify";
+import { looksLikeUnroutedTask, routeIntent, type Intent } from "@/lib/intentRouter";
+import { isBareCommand } from "@/lib/terminalRuntime";
+import { findEmails } from "@/lib/email";
 import { runVisualCritic } from "@/lib/agentic/visualCritic";
 import { planAutonomousTask } from "@/lib/agentic/planner";
 import { autoLearnPreferences, formatAgentMemoryContext } from "@/lib/agentic/semanticMemory";
-import { createBackgroundTask } from "@/lib/agentic/taskQueue";
+import { createBackgroundTask, listBackgroundTasks } from "@/lib/agentic/taskQueue";
 
 const USER_PROJECTS_BASE = path.join(process.cwd(), ".data", "user_projects");
 
@@ -56,7 +60,15 @@ function sanitizeSlug(name: string): string {
 export const maxDuration = 300;
 
 // "mana hasilnya", "kok gak ada preview", "tampilin dong": tampilkan ulang kartu website terbaru (jangan dijawab chatbot)
+/** Pesan yang sudah punya jalur sendiri di bawah (website, file, deploy, email, dst.): tidak perlu ditanyakan ke router maksud. */
+const OWN_ROUTE = /\b(website|web|situs|landing\s*page|toko\s+online|dashboard|game|aplikasi|portfolio|portofolio|halaman)\b|\b(?:buat|bikin|create|baca|tampilkan|lihat|buka|cek|edit|ubah|ganti|modifikasi|update|perbarui|daftar|isi)\s+(?:isi\s+)?(?:file|folder)\b|^(?:agen|agent|coding|mode|susun\s+rencana|buat\s+rencana|plan\s+task|jalankan\s+di\s+background|background\s+task|antrean|pakai|pake|gunakan|use|mcp|undo|batalin|batalkan|stop|status|hentikan|matikan)\b|\b(deploy|publikasi(?:kan)?|hosting|e-?mail|surel|skill|anatomy|tim|team|divisi|inspeksi\s+visual|tampilan|layout|kredit|credit|proyek\s+baru|project\s+baru)\b|https?:\/\/|www\./i;
+
 const SHOW_RESULT = /\b(mana\s+(?:hasil|preview|website|webnya)|(?:hasil|preview)(?:nya)?\s+mana|gak|ga|nggak|tidak|belum)\s+(?:ada|muncul|keluar|kelihatan)\s*(?:preview|hasil|tombol)?|\b(?:tampil(?:in|kan)|lihat|buka(?:in|kan)?)\s+(?:hasil|preview|website|webnya)\b|\bmana\s+hasil/i;
+
+/** MCP untuk agent: wajib sesi PIN bila PIN diset; tanpa PIN, proxy sudah membatasi ke komputer ini. */
+function hasStudioSessionOrLocal(req: Request): boolean {
+  return !process.env.STUDIO_PIN?.trim() || hasStudioSession(req);
+}
 
 export async function POST(req: Request) {
   try {
@@ -155,8 +167,27 @@ export async function POST(req: Request) {
       }
     }
 
+    // Router maksud: permintaan kerja yang tidak dikenali pola mana pun di bawah tidak boleh jatuh jadi obrolan.
+    // Gerbang murah dulu (tanpa LLM); hanya sisanya yang ditanyakan ke model kecil.
+    let routedIntent: Intent = "chat";
+    {
+      const ownRoute = projectDirectReply !== null || !!attachedItem || !!imageUri || !!imageDataUri || OWN_ROUTE.test(work) ||
+        !!detectSkill(work) || isVideoRequest(work) || !!planChain(work) || isBareCommand(work) || !!detectAgentTask(work) || findEmails(work).length > 0;
+      if (looksLikeUnroutedTask(work, ownRoute)) {
+        const hasProjectCode = await listProjectFiles(activeProjectId)
+          .then((files) => files.some((f) => !f.isDir && /\.(?:[cm]?[jt]sx?|py|html|css|json|go|rs|php|vue|svelte)$/i.test(f.path)))
+          .catch(() => false);
+        const routed = await routeIntent(work, {
+          hasOwnRoute: false,
+          hasProjectCode,
+          classify: async (system, prompt) => (await callLLM({ system, prompt, apiKey, json: true, fast: true, temperature: 0, maxTokens: 120, timeoutMs: 15_000 })).text,
+        });
+        routedIntent = routed.intent;
+      }
+    }
+
     // Jalankan agen coding sebelum parser edit satu-file lama menangkap isi perintahnya.
-    if (projectDirectReply === null && /^(?:agen\s+coding|agent\s+coding|coding\s+agent)\s*[:,-]\s*\S/i.test(work)) {
+    if (projectDirectReply === null && (routedIntent === "coding" || /^(?:agen\s+coding|agent\s+coding|coding\s+agent)\s*[:,-]\s*\S/i.test(work))) {
       const codingTask = work.replace(/^(?:agen\s+coding|agent\s+coding|coding\s+agent)\s*[:,-]\s*/i, "").trim();
       try {
         const result = await runCodingHarness(activeProjectId, codingTask, async (system, prompt) => {
@@ -291,21 +322,23 @@ export async function POST(req: Request) {
     const isAutopilotTriggered = agentMode === "autopilot" && (
       /\b(bikin|buat|edit|tambah|perbaiki|ubah|scaffold|deploy|refactor|analisis|kerjakan|selesaikan|jalan(?:kan)?)\b/i.test(trimmedMessage)
     );
-    if (projectDirectReply === null && (reactMatch || isAutopilotTriggered)) {
+    if (projectDirectReply === null && (reactMatch || isAutopilotTriggered || routedIntent === "agent")) {
       const agentGoal = reactMatch && reactMatch[1] ? reactMatch[1].trim() : trimmedMessage;
       try {
         const reactRes = await runReActLoop(agentGoal, {
           projectId: activeProjectId,
           conversationId: convId,
           apiKey,
-          maxSteps: 8,
+          maxSteps: 10,
+          mcpEnabled: Array.isArray(mcpEnabled) && hasStudioSessionOrLocal(req) ? mcpEnabled.filter((x: unknown): x is string => typeof x === "string") : [],
         });
 
         const stepLog = reactRes.steps
           .map((s) => `• **Langkah ${s.stepNumber}**: ${s.thought.slice(0, 100)}\n  _Aksi:_ \`${s.action}\` (${s.success ? "sukses" : "gagal"})`)
           .join("\n");
 
-        projectDirectReply = `🚀 **Autopilot ReAct Execution Selesai (Izin: ${agentPermission.toUpperCase()})!**\n\n${reactRes.finalAnswer}\n\n<details><summary><b>Lihat ${reactRes.steps.length} Langkah ReAct Loop</b></summary>\n\n${stepLog}\n</details>`;
+        const headline = reactRes.success ? "Selesai dan terverifikasi." : "Belum tuntas. Ini yang sebenarnya terjadi:";
+        projectDirectReply = `**${headline}**\n\n${reactRes.finalAnswer}\n\n<details><summary><b>Lihat ${reactRes.steps.length} langkah agent</b></summary>\n\n${stepLog}\n</details>`;
         if (reactRes.artifacts.length > 0) {
           artifact = reactRes.artifacts[0];
         }
@@ -382,6 +415,15 @@ export async function POST(req: Request) {
       } catch (err) {
         projectDirectReply = `Gagal mendaftarkan background task: ${(err as Error).message}`;
       }
+    }
+
+    // 4b. Status tugas background: "status tugas", "cek tugas", "tugas tadi gimana"
+    if (projectDirectReply === null && /^(?:(?:cek|lihat|apa)\s+)?(?:status|daftar|progres|progress)\s+(?:tugas|task|antrean)\b|^(?:cek\s+)?tugas\s+(?:background|tadi|barusan)\b/i.test(work)) {
+      const tasks = (await listBackgroundTasks()).filter((t) => !t.conversationId || t.conversationId === convId).slice(0, 6);
+      const label: Record<string, string> = { queued: "antre", running: "jalan", completed: "selesai", failed: "gagal", cancelled: "dibatalkan" };
+      projectDirectReply = tasks.length
+        ? `Tugas background terakhir:\n\n${tasks.map((t) => `- **${label[t.status] || t.status}** (${t.progressPercent}%): ${t.task.slice(0, 90)}\n  ${t.currentStepMessage.slice(0, 140)}`).join("\n")}`
+        : "Belum ada tugas background di percakapan ini.";
     }
 
     // 5. Cek Sisa & Konsumsi Kredit / Token
@@ -1361,18 +1403,10 @@ Mau kita edit apa sekarang di website lokalmu? Bilang aja instruksinya, langsung
         reply = out!.reply;
         artifact = out!.artifact;
       } catch (err) {
-        console.error(`Skill ${kind} failed, falling back:`, err);
-        const aiRes = await generateAIResponse({
-          prompt: work,
-          projectContext: await getProjectChatContext(activeProjectId, work),
-          history,
-          apiKey,
-          aiMode,
-          language: language === "en-US" ? "en-US" : "id-ID",
-          systemPrompt,
-        });
-        reply = aiRes.reply;
-        artifact = aiRes.artifact;
+        console.error(`Skill ${kind} failed:`, err);
+        const label = kind === "slides" ? "slide" : kind === "document" ? "dokumen" : kind === "spreadsheet" ? "tabel" : "invoice";
+        reply = `Gagal membuat ${label}: ${(err as Error).message || "model tidak memberi hasil yang bisa dipakai"}. Tidak ada file yang dibuat. Coba kirim ulang, atau ganti model di Pengaturan kalau terus gagal.`;
+        artifact = undefined;
       }
       } else {
         // Skill komunitas on-demand (katalog di lib/skillCatalog.ts).
@@ -1434,6 +1468,15 @@ Mau kita edit apa sekarang di website lokalmu? Bilang aja instruksinya, langsung
       reply = reply.replace(/```[\s\S]*?```/g, "").replace(/\n{3,}/g, "\n\n").trim();
     }
     if (projectPrefix && projectDirectReply === null) reply = projectPrefix + reply;
+
+    // Verifikasi oleh kode: artefak kosong/rusak tidak boleh dilaporkan sebagai hasil
+    if (artifact && typeof artifact === "object" && artifact.type) {
+      const problem = artifactProblem(artifact);
+      if (problem) {
+        reply = `${reply}\n\nCatatan: hasilnya gagal diverifikasi (${problem}), jadi tidak aku lampirkan. Coba minta ulang.`;
+        artifact = undefined;
+      }
+    }
 
     // 5. Save assistant message
     const assistantMsg = await addMessage(convId, {

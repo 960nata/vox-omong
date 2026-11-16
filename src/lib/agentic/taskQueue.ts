@@ -5,11 +5,43 @@ import type { BackgroundTaskRecord, TaskStatus } from "./types";
 import { runReActLoop } from "./reactLoop";
 import { planAutonomousTask } from "./planner";
 import { runVisualCritic } from "./visualCritic";
+import { addMessage } from "../storage";
 
 const TASKS_DIR = path.join(process.cwd(), ".data", "agentic", "tasks");
 
 // In-memory cache of running task controllers
 const runningControllers = new Map<string, AbortController>();
+
+/** Tugas "running"/"queued" tanpa worker hidup dan lama tidak diperbarui = terputus (server restart/crash). */
+const STALE_MS = 3 * 60_000;
+function reconcile(record: BackgroundTaskRecord): { record: BackgroundTaskRecord; changed: boolean } {
+  const active = record.status === "running" || record.status === "queued";
+  if (!active || runningControllers.has(record.id)) return { record, changed: false };
+  if (Date.now() - new Date(record.updatedAt).getTime() < STALE_MS) return { record, changed: false };
+  record.status = "failed";
+  record.error = "Terputus: server berhenti atau restart saat tugas ini berjalan.";
+  record.currentStepMessage = "Terputus sebelum selesai. Minta ulang untuk menjalankannya lagi.";
+  record.logs.push(`[${new Date().toLocaleTimeString()}] Ditandai terputus (tidak ada worker yang hidup).`);
+  return { record, changed: true };
+}
+
+/** Tulis hasil tugas ke percakapan asalnya, supaya user melihatnya tanpa harus menebak perintah cek status. */
+async function deliver(task: BackgroundTaskRecord): Promise<void> {
+  if (task.delivered || !task.conversationId) return;
+  const ok = task.status === "completed";
+  const head = ok ? "Tugas background selesai" : task.status === "cancelled" ? "Tugas background dibatalkan" : "Tugas background gagal";
+  const body = task.result?.reply || task.error || task.currentStepMessage;
+  try {
+    await addMessage(task.conversationId, {
+      role: "assistant",
+      content: `**${head}:** ${task.task.slice(0, 140)}\n\n${body}`,
+      artifact: task.result?.artifacts?.[0],
+      artifacts: task.result?.artifacts && task.result.artifacts.length > 1 ? task.result.artifacts : undefined,
+    });
+    task.delivered = true;
+    await saveTaskRecord(task);
+  } catch {}
+}
 
 async function ensureDir() {
   await fs.mkdir(TASKS_DIR, { recursive: true });
@@ -28,7 +60,9 @@ export async function saveTaskRecord(record: BackgroundTaskRecord): Promise<void
 export async function getBackgroundTask(id: string): Promise<BackgroundTaskRecord | null> {
   try {
     const raw = await fs.readFile(taskFilePath(id), "utf-8");
-    return JSON.parse(raw) as BackgroundTaskRecord;
+    const { record, changed } = reconcile(JSON.parse(raw) as BackgroundTaskRecord);
+    if (changed) { await saveTaskRecord(record); await deliver(record); }
+    return record;
   } catch {
     return null;
   }
@@ -43,7 +77,9 @@ export async function listBackgroundTasks(): Promise<BackgroundTaskRecord[]> {
       if (!f.endsWith(".json")) continue;
       try {
         const raw = await fs.readFile(path.join(TASKS_DIR, f), "utf-8");
-        records.push(JSON.parse(raw));
+        const { record, changed } = reconcile(JSON.parse(raw) as BackgroundTaskRecord);
+        if (changed) { await saveTaskRecord(record); await deliver(record); }
+        records.push(record);
       } catch {}
     }
     return records.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -63,6 +99,7 @@ export async function cancelBackgroundTask(id: string): Promise<boolean> {
     task.status = "cancelled";
     task.currentStepMessage = "Tugas dibatalkan oleh pengguna.";
     await saveTaskRecord(task);
+    await deliver(task);
     return true;
   }
   return false;
@@ -90,6 +127,8 @@ export async function createBackgroundTask(
     progressPercent: 5,
     currentStepMessage: "Tugas masuk antrean background worker...",
     logs: [`[${new Date().toLocaleTimeString()}] Tugas terdaftar: "${taskInstruction}"`],
+    projectId,
+    conversationId: opts.conversationId,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -169,7 +208,8 @@ async function runTaskWorker(
       projectId,
       conversationId,
       apiKey,
-      maxSteps: 8,
+      maxSteps: 12,
+      signal: controller.signal,
       onStep: (step) => {
         task.progressPercent = Math.min(90, task.progressPercent + 10);
         task.currentStepMessage = `[Langkah ${step.stepNumber}] ${step.thought.slice(0, 80)}...`;
@@ -180,9 +220,12 @@ async function runTaskWorker(
       },
     });
 
+    if (controller.signal.aborted) return; // sudah ditandai batal oleh cancelBackgroundTask
     task.progressPercent = 100;
-    task.status = "completed";
-    task.currentStepMessage = "Tugas selesai.";
+    // "completed" hanya untuk hasil yang lolos verifikasi; selain itu gagal, dengan cerita jujurnya
+    task.status = reactRes.success ? "completed" : "failed";
+    task.currentStepMessage = reactRes.success ? "Tugas selesai dan terverifikasi." : "Belum tuntas. Lihat rinciannya.";
+    if (!reactRes.success) task.error = "Hasil belum terverifikasi.";
     task.result = {
       reply: reactRes.finalAnswer,
       artifacts: reactRes.artifacts,
@@ -196,5 +239,7 @@ async function runTaskWorker(
     await saveTaskRecord(task);
   } finally {
     runningControllers.delete(task.id);
+    const finalStatus = task.status as TaskStatus;
+    if (finalStatus !== "running" && finalStatus !== "queued") await deliver(task);
   }
 }

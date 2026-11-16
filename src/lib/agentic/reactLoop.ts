@@ -4,6 +4,7 @@ import { executeAgentTool, getToolDefinitions } from "./toolRegistry";
 import { formatAgentMemoryContext, rememberSemantic } from "./semanticMemory";
 import type { ArtifactItem } from "../types";
 import type { ReActResult, ReActStep, ToolExecutionContext } from "./types";
+import { collectEvidence, evidenceNote, goalNeedsEvidence } from "./verify";
 
 const MAX_REACT_STEPS = 8;
 
@@ -25,6 +26,8 @@ Aturan penting:
 2. Setelah melihat observasi dari tool, tentukan langkah berikutnya.
 3. Jika tugas sudah selesai atau informasi sudah cukup lengkap, pilih action: "finish" dengan args: { "final_answer": "jawaban lengkap untuk pengguna" }.
 4. Jangan mengulang aksi yang gagal dengan argumen yang sama persis.
+6. Jangan pilih "finish" sebelum hasilnya benar-benar ada. Sistem memeriksa bukti: klaim selesai tanpa alat yang berhasil akan ditolak.
+7. Kalau tidak bisa diselesaikan, pilih "finish" dan katakan terus terang apa yang gagal dan kenapa.
 5. Gunakan bahasa Indonesia yang santai, lugas, dan solutif.`;
 
 export async function runReActLoop(
@@ -34,6 +37,9 @@ export async function runReActLoop(
     conversationId?: string;
     apiKey?: string;
     maxSteps?: number;
+    mcpEnabled?: string[];
+    /** Pembatalan dari luar (tombol batal tugas background). Dicek sebelum tiap langkah. */
+    signal?: AbortSignal;
     onStep?: (step: ReActStep) => void;
   }
 ): Promise<ReActResult> {
@@ -57,11 +63,19 @@ export async function runReActLoop(
     projectId: opts.projectId,
     conversationId: opts.conversationId,
     apiKey: opts.apiKey,
+    mcpEnabled: opts.mcpEnabled,
   };
 
   let finalAnswer = "";
+  let finished = false;
+  let rejectedFinish = 0;
+  let badFormat = 0;
 
   for (let stepIndex = 0; stepIndex < maxSteps; stepIndex++) {
+    if (opts.signal?.aborted) {
+      finalAnswer = "Dibatalkan sebelum selesai.";
+      break;
+    }
     // Sliding window scratchpad (hanya simpan 3 langkah terakhir agar hemat token & prompt tidak membengkak)
     const recentScratchpad = scratchpad.slice(-3);
 
@@ -80,7 +94,8 @@ export async function runReActLoop(
         system,
         prompt,
         json: true,
-        maxTokens: stepIndex === maxSteps - 1 ? 800 : 350,
+        // file_write membawa isi file di dalam JSON; jatah kecil memotong JSON di tengah
+        maxTokens: 1600,
         temperature: 0.1,
         fast: true,
         apiKey: opts.apiKey,
@@ -94,7 +109,9 @@ export async function runReActLoop(
       }>(res.text);
 
       if (!parsed || !parsed.action) {
-        scratchpad.push(`[Langkah ${stepIndex + 1}] Format balasan tidak dikenali.`);
+        badFormat++;
+        scratchpad.push(`[Langkah ${stepIndex + 1}] Balasanmu bukan JSON yang sah. Balas HANYA satu objek: {"thought":"...","action":"nama_tool","args":{...}}`);
+        if (badFormat >= 3) break;
         continue;
       }
 
@@ -112,6 +129,14 @@ export async function runReActLoop(
 
       // Check if finished
       if (action === "finish") {
+        // Klaim selesai untuk tugas kerja tanpa satu pun alat yang berhasil: tolak (maks 2x), suruh kerjakan dulu
+        const proof = collectEvidence(userGoal, steps, artifacts);
+        if (goalNeedsEvidence(userGoal) && proof.done.length === 0 && rejectedFinish < 2 && stepIndex < maxSteps - 1) {
+          rejectedFinish++;
+          scratchpad.push(`[Langkah ${stepIndex + 1}] "finish" DITOLAK sistem: belum ada alat yang berhasil dijalankan. Kerjakan tugasnya dengan alat, atau kalau memang mustahil, jelaskan penyebabnya di final_answer.`);
+          continue;
+        }
+        finished = true;
         finalAnswer = String(args.final_answer || args.answer || thought || "Tugas berhasil diselesaikan.");
         currentStep.observation = "Selesai.";
         currentStep.success = true;
@@ -144,16 +169,21 @@ export async function runReActLoop(
     }
   }
 
+  const evidence = collectEvidence(userGoal, steps, artifacts);
   if (!finalAnswer) {
-    finalAnswer = steps.length > 0 && steps[steps.length - 1].observation
-      ? `Agen mencapai batas langkah maksimal (${maxSteps}). Ringkasan observasi terakhir:\n${steps[steps.length - 1].observation?.slice(0, 500)}`
-      : "Agen belum berhasil menyelesaikan tugas dalam batas iterasi.";
+    finalAnswer = steps.length > 0
+      ? `Belum selesai: agent berhenti di batas ${maxSteps} langkah.`
+      : "Belum selesai: model tidak memberi langkah yang bisa dijalankan (format balasan rusak atau model sedang gagal).";
   }
+  const note = evidenceNote(evidence);
+  const verified = finished && evidence.ok;
+  if (finished && !evidence.ok) finalAnswer = `Selesai sebagian, belum terverifikasi.\n\n${finalAnswer}`;
+  if (note) finalAnswer = `${finalAnswer}\n\n${note}`;
 
   return {
-    success: steps.some((s) => s.action === "finish" && s.success),
+    success: verified,
     finalAnswer,
     steps,
-    artifacts,
+    artifacts: artifacts.filter((a) => a && typeof a === "object" && "type" in a),
   };
 }

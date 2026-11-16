@@ -20,6 +20,8 @@ export interface ToolExecutionContext {
   projectId: string;
   conversationId?: string;
   apiKey?: string;
+  /** Layanan MCP yang diaktifkan user untuk percakapan ini. Kosong = agent tidak boleh memakai MCP. */
+  mcpEnabled?: string[];
   onLog?: (message: string) => void;
 }
 
@@ -115,6 +117,10 @@ export interface BackgroundTaskRecord {
     artifacts: ArtifactItem[];
   };
   error?: string;
+  projectId?: string;
+  conversationId?: string;
+  /** Hasil sudah ditulis ke percakapan asal. */
+  delivered?: boolean;
   createdAt: string;
   updatedAt: string;
 }
