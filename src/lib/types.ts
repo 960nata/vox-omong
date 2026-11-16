@@ -162,6 +162,20 @@ export interface Message {
   imageUri?: string;
   imageAnalysis?: string;
   attachedItem?: AttachedItem;
+  /** Kolom ceklis pilihan tim (alur proyek langkah 2). */
+  teamPicker?: TeamPicker;
+}
+
+export interface TeamPickerOption {
+  kind: string;
+  name: string;
+  /** Fungsi tim dalam satu kalimat biasa. */
+  role: string;
+  recommended: boolean;
+}
+
+export interface TeamPicker {
+  options: TeamPickerOption[];
 }
 
 export interface Conversation {

@@ -1608,13 +1608,15 @@ export default function VoiceAiStudio() {
                 </div>
               </div>
             ) : (
-              messages.map((msg) => (
+              messages.map((msg, i) => (
                 <MessageItem
                   key={msg.id}
                   message={msg}
                   onSpeak={(t) => speakText(t)}
                   isCurrentSpeaking={isSpeaking}
                   onStopSpeaking={stopSpeaking}
+                  onSend={(t) => handleSendMessage(t)}
+                  isLatest={i === messages.length - 1}
                 />
               ))
             )}

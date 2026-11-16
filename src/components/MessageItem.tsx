@@ -5,6 +5,8 @@ import { Message } from "@/lib/types";
 import { ArtifactCard } from "./ArtifactCard";
 import { Logo } from "./Logo";
 import { MessageContent } from "./MessageContent";
+import { TeamPicker } from "./TeamPicker";
+import { pickerMessage } from "@/lib/teamFlow";
 import { Volume2, VolumeX, Copy, Check, User, Maximize2, X, Folder, File, FileCode, FileText, ChevronDown, ChevronUp, HardDrive } from "lucide-react";
 
 interface MessageItemProps {
@@ -12,6 +14,10 @@ interface MessageItemProps {
   onSpeak: (text: string) => void;
   isCurrentSpeaking: boolean;
   onStopSpeaking: () => void;
+  /** Kirim teks sebagai pesan user (dipakai kolom ceklis tim). */
+  onSend?: (text: string) => void;
+  /** Ada pesan yang lebih baru: kontrol interaktif di pesan ini dikunci. */
+  isLatest?: boolean;
 }
 
 export function MessageItem({
@@ -19,6 +25,8 @@ export function MessageItem({
   onSpeak,
   isCurrentSpeaking,
   onStopSpeaking,
+  onSend,
+  isLatest = true,
 }: MessageItemProps) {
   const [copied, setCopied] = useState(false);
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
@@ -179,6 +187,9 @@ export function MessageItem({
             <ArtifactCard artifact={a} />
           </div>
         ))}
+        {message.teamPicker && (
+          <TeamPicker picker={message.teamPicker} locked={!isLatest} onPick={onSend ? (names) => onSend(pickerMessage(names)) : undefined} />
+        )}
       </div>
 
       {/* Meta + aksi di bawah bubble */}

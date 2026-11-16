@@ -5,6 +5,7 @@
  * Fungsi murni supaya gampang dites.
  */
 import type { IdeaOption, PipelineStage } from "./teamTypes";
+import type { TeamPicker } from "./types";
 import { parseLoose } from "./jsonLoose";
 
 const DIVISIONS = "developer|marketing|founder|trading|creative|research|career|custom";
@@ -146,12 +147,9 @@ ${list(a.strengths)}
 Yang perlu diwaspadai:
 ${list(a.weaknesses)}
 
-Tim AI yang aku sarankan:
-${a.divisions.map((d, i) => `${i + 1}. ${d.name}. ${d.reason}`).join("\n")}
+Tim yang aku sarankan: ${a.divisions.map((d) => d.name).join(", ")}.
 
-Langkah berikutnya, pilih salah satu:
-- Ketik "bentuk tim" untuk membentuk semua tim di atas.
-- Ketik "tim developer saja" kalau mau mulai dari satu tim dulu.`;
+Langkah berikutnya: centang tim yang kamu mau di kolom bawah, lalu tekan "Bentuk tim". Yang sudah tercentang adalah saran aku, boleh diubah. Bisa juga ketik "bentuk tim".`;
 }
 
 export function teamsFormedMessage(names: string[], withBoard: boolean): string {
@@ -169,4 +167,33 @@ export function teamListMessage(project: string, teams: { name: string; members:
 ${teams.map((t) => `- ${t.name}: ${t.members.join(", ")} (${t.members.length} orang)`).join("\n")}
 
 Buka panel Riwayat & Divisi di sebelah kiri untuk ngobrol dan kasih tugas ke tim mana pun.`;
+}
+
+/* Kolom ceklis tim: semua divisi bisa dipilih, yang disarankan sudah dicentang. */
+
+export const DIVISION_INFO: { kind: string; name: string; role: string; words: RegExp }[] = [
+  { kind: "founder", name: "Tim Founder & Startup", role: "Mengecek apakah ide ini dibutuhkan orang, menentukan harga, dan menyusun rencana produk.", words: /\bfounder\b/i },
+  { kind: "developer", name: "Tim Developer", role: "Membuat aplikasi atau website-nya, dari tampilan sampai sistem di belakangnya.", words: /\b(?:developer|dev|programmer|coding)\b/i },
+  { kind: "marketing", name: "Tim Marketing", role: "Mengenalkan produk ke calon pengguna lewat konten, media sosial, dan promosi.", words: /\b(?:marketing|pemasaran)\b/i },
+  { kind: "creative", name: "Tim Kreatif", role: "Membuat logo, tampilan merek, video, dan desain visual.", words: /\b(?:kreatif|creative|desain|design)\b/i },
+  { kind: "research", name: "Tim Riset & Akademik", role: "Mengumpulkan data, membaca sumber, dan mengecek fakta.", words: /\b(?:riset|research|akademik)\b/i },
+  { kind: "trading", name: "Tim Trader & Finansial", role: "Menghitung keuangan, risiko modal, dan strategi investasi.", words: /\b(?:trader|trading|finansial|keuangan)\b/i },
+  { kind: "career", name: "Tim Karier & Talent", role: "Membantu soal CV, wawancara kerja, dan mencari orang untuk tim.", words: /\b(?:karier|karir|career|talent)\b/i },
+];
+
+/** Opsi kolom ceklis: yang disarankan di atas (dengan alasan dari analisis), sisanya di bawah tanpa centang. */
+export function buildTeamPicker(recommended: { kind: string; reason?: string }[]): TeamPicker {
+  const rec = new Map(recommended.map((r) => [r.kind, r.reason]));
+  const options = DIVISION_INFO.map((d) => ({ kind: d.kind, name: d.name, role: rec.get(d.kind) || d.role, recommended: rec.has(d.kind) }));
+  return { options: [...options.filter((o) => o.recommended), ...options.filter((o) => !o.recommended)] };
+}
+
+/** Pesan yang dikirim tombol kolom ceklis. */
+export function pickerMessage(names: string[]): string {
+  return `Bentuk tim: ${names.join(", ")}`;
+}
+
+/** Divisi yang disebut di pesan ("Bentuk tim: Tim Developer, Tim Marketing" / "tim developer saja"). */
+export function chosenDivisions(message: string): string[] {
+  return DIVISION_INFO.filter((d) => d.words.test(message)).map((d) => d.kind);
 }

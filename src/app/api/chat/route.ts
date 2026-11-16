@@ -41,7 +41,7 @@ import { hasStudioSession } from "@/lib/studioAuth";
 import { runReActLoop } from "@/lib/agentic/reactLoop";
 import { artifactProblem } from "@/lib/agentic/verify";
 import { looksLikeUnroutedTask, routeIntent, type Intent } from "@/lib/intentRouter";
-import { asksForTeams, claimsTeamFlow, formatAnalysis, formatIdeas, IDEA_SYSTEM, ideaFailedMessage, teamListMessage, teamsFormedMessage, isProjectBrief, isTeamSetupRequest as wantsTeamSetup, parseIdeas, pickIdea, singleDivision, wantsIdeaSuggestions } from "@/lib/teamFlow";
+import { asksForTeams, buildTeamPicker, chosenDivisions, claimsTeamFlow, formatAnalysis, formatIdeas, IDEA_SYSTEM, ideaFailedMessage, teamListMessage, teamsFormedMessage, isProjectBrief, isTeamSetupRequest as wantsTeamSetup, parseIdeas, pickIdea, singleDivision, wantsIdeaSuggestions } from "@/lib/teamFlow";
 import { isBareCommand } from "@/lib/terminalRuntime";
 import { findEmails } from "@/lib/email";
 import { runVisualCritic } from "@/lib/agentic/visualCritic";
@@ -664,9 +664,18 @@ AI bisa langsung membaca dan mengedit bagian mana pun dari kode ini di lokal, mi
     if (projectDirectReply === null && isTeamSetupRequest && activeProjectId) {
       const session = await getSession(activeProjectId);
       if (session) {
-        const single = singleDivision(trimmedMessage);
-        if (single) {
-          const kind = single as TeamKind;
+        // Pilihan dari kolom ceklis ("Bentuk tim: Tim Developer, Tim Marketing") atau ketikan ("tim developer saja")
+        const chosen = chosenDivisions(trimmedMessage) as TeamKind[];
+        if (chosen.length >= 2) {
+          const existing = await listTeams(activeProjectId);
+          for (const k of chosen) if (!existing.some(t => t.kind === k)) await createTeam(activeProjectId, k);
+          await syncExecutiveBoard(activeProjectId);
+          session.pipelineStage = "prd";
+          session.updatedAt = new Date().toISOString();
+          await saveSession(session);
+          projectDirectReply = teamsFormedMessage(chosen.map((k) => TEAM_NAMES[k] || k), true);
+        } else if (chosen.length === 1 || singleDivision(trimmedMessage)) {
+          const kind = (chosen[0] || singleDivision(trimmedMessage)) as TeamKind;
           const existing = await listTeams(activeProjectId);
           if (!existing.some(t => t.kind === kind)) {
             await createTeam(activeProjectId, kind);
@@ -698,6 +707,7 @@ AI bisa langsung membaca dan mengedit bagian mana pun dari kode ini di lokal, mi
 
     // D4b. Ideation tanpa ide konkret: tawarkan ide bernomor; "ide 1" / "yang kedua" langsung dibedah di D5
     let ideationBrief: string | null = null;
+    let teamPicker: ReturnType<typeof buildTeamPicker> | undefined;
     if (projectDirectReply === null && teamFlow && teamSession && !wantsTeamSetup(trimmedMessage) && !asksForTeams(trimmedMessage)) {
       const options = teamSession.ideaOptions || [];
       const picked = pickIdea(trimmedMessage, options.length);
@@ -744,6 +754,7 @@ AI bisa langsung membaca dan mengedit bagian mana pun dari kode ini di lokal, mi
             weaknesses: analysis.weaknesses?.length ? analysis.weaknesses : ["Belum terbukti ada orang yang mau bayar. Perlu dicek dulu ke calon pengguna."],
             divisions: analysis.recommendedDivisions.map((d) => ({ name: d.name, reason: d.reason })),
           });
+          teamPicker = buildTeamPicker(analysis.recommendedDivisions.map((d) => ({ kind: d.kind, reason: d.reason })));
         }
       }
     }
@@ -1487,6 +1498,7 @@ Mau kita edit apa sekarang di website lokalmu? Bilang aja instruksinya, langsung
       content: reply,
       artifact,
       artifacts: chainArtifacts,
+      teamPicker,
     });
 
     return NextResponse.json({

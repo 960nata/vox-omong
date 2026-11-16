@@ -67,3 +67,22 @@ describe("tahap ideation: tawarkan ide, lalu pilih", () => {
     expect(text).not.toMatch(/\*\*|[\u{1F300}-\u{1FAFF}]/u);
   });
 });
+
+import { buildTeamPicker, chosenDivisions, pickerMessage } from "../src/lib/teamFlow";
+
+describe("kolom ceklis tim", () => {
+  it("yang disarankan tercentang dan di atas, sisanya tersedia tanpa centang", () => {
+    const p = buildTeamPicker([{ kind: "developer", reason: "Bikin aplikasinya." }, { kind: "founder" }]);
+    expect(p.options.slice(0, 2).map((o) => [o.kind, o.recommended])).toEqual([["founder", true], ["developer", true]]);
+    expect(p.options.find((o) => o.kind === "developer")?.role).toBe("Bikin aplikasinya.");
+    expect(p.options.filter((o) => !o.recommended).length).toBe(5);
+  });
+
+  it("pesan dari tombol dibaca kembali jadi divisi yang sama", () => {
+    const msg = pickerMessage(["Tim Founder & Startup", "Tim Developer", "Tim Kreatif"]);
+    expect(isTeamSetupRequest(msg)).toBe(true);
+    expect(chosenDivisions(msg)).toEqual(["founder", "developer", "creative"]);
+    expect(chosenDivisions("bentuk tim rekomendasi")).toEqual([]);
+    expect(chosenDivisions("bentuk tim buat startup gw")).toEqual([]);
+  });
+});

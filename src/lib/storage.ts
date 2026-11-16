@@ -179,6 +179,7 @@ export async function addMessage(
     artifacts?: any[];
     imageUri?: string;
     attachedItem?: any;
+    teamPicker?: Message["teamPicker"];
   }
 ): Promise<Message> {
   return withDbLock(async () => {
@@ -209,6 +210,7 @@ export async function addMessage(
       ...(message.artifacts?.length ? { artifacts: message.artifacts } : {}),
       imageUri: message.imageUri,
       attachedItem: message.attachedItem,
+      ...(message.teamPicker ? { teamPicker: message.teamPicker } : {}),
     };
 
     // State disimpan di tulisan yang sama dengan pesan asisten: tidak ada jeda di mana pesan dan state tidak cocok
