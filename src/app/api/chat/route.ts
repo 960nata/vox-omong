@@ -41,6 +41,7 @@ import { hasStudioSession } from "@/lib/studioAuth";
 import { runReActLoop } from "@/lib/agentic/reactLoop";
 import { artifactProblem } from "@/lib/agentic/verify";
 import { looksLikeUnroutedTask, routeIntent, type Intent } from "@/lib/intentRouter";
+import { asksForTeams, claimsTeamFlow, isProjectBrief, isTeamSetupRequest as wantsTeamSetup, singleDivision } from "@/lib/teamFlow";
 import { isBareCommand } from "@/lib/terminalRuntime";
 import { findEmails } from "@/lib/email";
 import { runVisualCritic } from "@/lib/agentic/visualCritic";
@@ -171,8 +172,12 @@ export async function POST(req: Request) {
     // Router maksud: permintaan kerja yang tidak dikenali pola mana pun di bawah tidak boleh jatuh jadi obrolan.
     // Gerbang murah dulu (tanpa LLM); hanya sisanya yang ditanyakan ke model kecil.
     let routedIntent: Intent = "chat";
+    // Proyek dengan sesi tim: ide/brief dan "buat tim" milik alur tim (D4/D5 di bawah), bukan agent umum / Autopilot
+    const teamSession = activeProjectId ? await getSession(activeProjectId).catch(() => null) : null;
+    const teamCount = teamSession ? (await listTeams(activeProjectId).catch(() => [])).filter((t) => t.kind !== "executive").length : 0;
+    const teamFlow = !!teamSession && projectDirectReply === null && claimsTeamFlow(trimmedMessage, { stage: teamSession.pipelineStage, teamCount, hasFolder: attachedItem?.type === "folder" });
     {
-      const ownRoute = projectDirectReply !== null || !!attachedItem || !!imageUri || !!imageDataUri || OWN_ROUTE.test(work) ||
+      const ownRoute = teamFlow || projectDirectReply !== null || !!attachedItem || !!imageUri || !!imageDataUri || OWN_ROUTE.test(work) ||
         !!detectSkill(work) || isVideoRequest(work) || !!planChain(work) || isBareCommand(work) || !!detectAgentTask(work) || findEmails(work).length > 0;
       if (looksLikeUnroutedTask(work, ownRoute)) {
         const hasProjectCode = await listProjectFiles(activeProjectId)
@@ -323,7 +328,7 @@ export async function POST(req: Request) {
     const isAutopilotTriggered = agentMode === "autopilot" && (
       /\b(bikin|buat|edit|tambah|perbaiki|ubah|scaffold|deploy|refactor|analisis|kerjakan|selesaikan|jalan(?:kan)?)\b/i.test(trimmedMessage)
     );
-    if (projectDirectReply === null && (reactMatch || isAutopilotTriggered || routedIntent === "agent")) {
+    if (projectDirectReply === null && !teamFlow && (reactMatch || isAutopilotTriggered || routedIntent === "agent")) {
       const agentGoal = reactMatch && reactMatch[1] ? reactMatch[1].trim() : trimmedMessage;
       try {
         const reactRes = await runReActLoop(agentGoal, {
@@ -646,17 +651,20 @@ AI bisa langsung membaca dan mengedit bagian mana pun dari kode ini di lokal, mi
     const editWebsiteMatch = !editFileMatch && /\b(?:edit|ubah|ganti|modifikasi)\s+(?:project\s+)?(?:website|web|situs|landing\s+page)\s+(?:di\s+lokal\s+)?(?:ini\s+)?([\s\S]*)/i.test(trimmedMessage);
 
     // D4. Check untuk Konfirmasi Pembentukan Tim ("bentuk tim rekomendasi" / "bentuk tim developer saja")
-    const isTeamSetupRequest =
-      /\b(?:bentuk|buat|pilih|aktifkan|setup)\s+(?:semua\s+)?(?:tim|divisi)\b/i.test(trimmedMessage) ||
-      /\b(?:tim\s+rekomendasi|rekomendasi\s+tim|semua\s+tim|semua\s+divisi)\b/i.test(trimmedMessage) ||
-      /\b(?:hanya\s+)?(?:tim|divisi)\s+(developer|marketing|founder|trading|creative|research|career|custom)(?:\s+saja|\s+aja)?\b/i.test(trimmedMessage);
+    const isTeamSetupRequest = wantsTeamSetup(trimmedMessage) || (asksForTeams(trimmedMessage) && !!teamSession && teamCount === 0);
+
+    // "timnya mana": tim sudah ada → tunjukkan, bukan dikerjakan agent umum
+    if (projectDirectReply === null && teamSession && teamCount > 0 && asksForTeams(trimmedMessage) && !wantsTeamSetup(trimmedMessage)) {
+      const teams = (await listTeams(activeProjectId)).filter((t) => t.kind !== "executive");
+      projectDirectReply = `👥 **Tim AI di proyek ${teamSession.title}:**\n\n${teams.map((t) => `- **${t.name}** — ${t.members.length} agent: ${t.members.map((m) => m.name).join(", ")}`).join("\n")}\n\nBuka panel **Riwayat & Divisi** di kiri untuk masuk ke grup tiap tim dan kasih tugas, atau ketik tugasnya di sini.`;
+    }
 
     if (projectDirectReply === null && isTeamSetupRequest && activeProjectId) {
       const session = await getSession(activeProjectId);
       if (session) {
-        const singleMatch = trimmedMessage.match(/\b(?:hanya\s+)?(?:tim|divisi)\s+(developer|marketing|founder|trading|creative|research|career|custom)(?:\s+saja|\s+aja)?\b/i);
-        if (singleMatch && singleMatch[1]) {
-          const kind = singleMatch[1].toLowerCase() as TeamKind;
+        const single = singleDivision(trimmedMessage);
+        if (single) {
+          const kind = single as TeamKind;
           const existing = await listTeams(activeProjectId);
           if (!existing.some(t => t.kind === kind)) {
             await createTeam(activeProjectId, kind);
@@ -689,9 +697,7 @@ AI bisa langsung membaca dan mengedit bagian mana pun dari kode ini di lokal, mi
     if (projectDirectReply === null && activeProjectId) {
       const session = await getSession(activeProjectId);
       if (session && (session.pipelineStage === "ideation" || (await listTeams(activeProjectId)).filter(t => t.kind !== "executive").length === 0)) {
-        const isProjectBriefOrFolder =
-          Boolean(attachedItem && attachedItem.type === "folder") ||
-          /\b(proyek|project|ide|produk|bisnis|aplikasi|platform|website|buatkan|bikin|kembangkan|analisis|bedah|konsep|investasi)\b/i.test(trimmedMessage);
+        const isProjectBriefOrFolder = isProjectBrief(trimmedMessage, attachedItem?.type === "folder");
 
         if (isProjectBriefOrFolder && (trimmedMessage.length >= 15 || attachedItem)) {
           const folderSnippet = attachedItem?.textSnippet || (attachedItem?.files ? `Daftar file: ${(attachedItem.files || []).slice(0, 30).map((f: any) => f.path).join(", ")}` : undefined);
