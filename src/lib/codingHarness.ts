@@ -7,6 +7,7 @@ import ts from "typescript";
 import { PROJECTS_BASE, listProjectFiles } from "./projects";
 import { searchProjectCode, invalidateCodeIndex } from "./localCodeSearch";
 import { executeTerminal } from "./terminalRuntime";
+import { digestOutput } from "./terminal/digest";
 import { createCheckpoint, backupFileBeforeEdit, recordCreatedFile } from "./gitCheckpoint";
 
 const execFileAsync = promisify(execFile);
@@ -451,10 +452,8 @@ Aturan Kerja Agen:
         changed.add(rel);
         output = `Berhasil membuat ${rel}. Disarankan jalankan run_check atau run_command.`;
       } else if (action.tool === "run_command") {
-        const res = await executeTerminal({ command: action.command, projectId });
-        output = `[Exit code: ${res.exitCode ?? (res.success ? 0 : 1)}]\n${res.stdout || ""}${res.stderr ? `\nSTDERR:\n${res.stderr}` : ""}`
-          .trim()
-          .slice(-3000);
+        const res = await executeTerminal({ command: action.command, projectId, origin: "agent" });
+        output = `[Exit code: ${res.exitCode ?? (res.success ? 0 : 1)}]\n${digestOutput(`${res.stdout || ""}${res.stderr ? `\nSTDERR:\n${res.stderr}` : ""}`, { maxChars: 3000 })}`;
         const checkLine = res.success
           ? `Lulus terminal: \`${action.command}\``
           : `Gagal terminal: \`${action.command}\` (exit code ${res.exitCode ?? 1})`;

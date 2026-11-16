@@ -11,6 +11,11 @@ export interface StoredMcpCredentials {
 }
 
 export const PROVIDER_AUTH_LINKS: Partial<Record<McpProvider, { url: string; label: string; tokenName: string }>> = {
+  github: {
+    url: "https://cli.github.com/",
+    label: "Login lewat GitHub CLI: jalankan `gh auth login` (tanpa menempel token)",
+    tokenName: "GITHUB_TOKEN",
+  },
   vercel: {
     url: "https://vercel.com/account/tokens",
     label: "Buat Vercel Personal Access Token",

@@ -2,6 +2,10 @@ import { exec, spawn, type ChildProcess } from "child_process";
 import fs from "fs/promises";
 import path from "path";
 import { projectDir } from "./projectDir";
+import { decide, type Origin } from "./terminal/policy";
+import { resolveInRoots, isSandboxed } from "./terminal/roots";
+import { audit } from "./terminal/audit";
+import { digestOutput } from "./terminal/digest";
 
 const BLOCKED_PATTERNS = [/rm\s+-rf\s+\/($|\s)/i, /mkfs/i, /dd\s+if=/i, />\s*\/dev\/sd/i];
 const LOG_LIMIT = 24_000;
@@ -80,6 +84,11 @@ function persistentCommand(command: string) {
 async function exists(file: string) { return fs.access(file).then(() => true, () => false); }
 
 async function workingDirectory(projectId?: string, cwd?: string, preferWeb = false) {
+  // Path absolut hanya diterima kalau berada di folder kerja yang sudah dipilih user (workspace roots)
+  if (cwd && path.isAbsolute(cwd)) {
+    const inRoot = await resolveInRoots(cwd);
+    if (inRoot && (await fs.stat(inRoot)).isDirectory()) return inRoot;
+  }
   const base = await fs.realpath(await projectDir(projectId));
   let target = base;
   if (cwd) {
@@ -197,7 +206,7 @@ export async function stopTerminal(projectId?: string, cwd?: string): Promise<Te
   return { ...resultFor(record), stdout: `${resultFor(record).stdout}\n${record.running ? "Penghentian masih menunggu proses." : "Server telah dihentikan."}`, success: !record.running };
 }
 
-export async function executeTerminal(opts: { command: string; projectId?: string; cwd?: string }): Promise<TerminalResult> {
+export async function executeTerminal(opts: { command: string; projectId?: string; cwd?: string; origin?: Origin }): Promise<TerminalResult> {
   let command = opts.command?.trim();
   if (!command || command.length > 8000) throw new TerminalCommandError("Command wajib diisi (maksimal 8000 karakter).");
   if (BLOCKED_PATTERNS.some((pattern) => pattern.test(command))) throw new TerminalCommandError("Perintah berbahaya ditolak oleh sistem keamanan.", 403);
@@ -211,6 +220,12 @@ export async function executeTerminal(opts: { command: string; projectId?: strin
   }
   const persistent = persistentCommand(command);
   const dir = await workingDirectory(opts.projectId, cwd, persistent);
+  const origin: Origin = opts.origin ?? "user";
+  const verdict = decide(command, origin, await isSandboxed(dir));
+  if (!verdict.allowed) {
+    await audit({ origin, command: displayCommand, cwd: dir, tier: verdict.tier, allowed: false, note: verdict.reason });
+    throw new TerminalCommandError(`Perintah ditolak: ${verdict.reason}`, 403);
+  }
   await ensureStaticServer(dir, command);
   const { env, secrets } = environment();
   const startedAt = Date.now();
@@ -225,6 +240,7 @@ export async function executeTerminal(opts: { command: string; projectId?: strin
     const child = spawn(command, { cwd: dir, env, shell: true, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
     const record: ManagedProcess = { child, command: displayCommand, workingDir: dir, startedAt, stdout: "", stderr: "", running: true, exitCode: null, candidateUrls: [], secrets };
     processes.set(dir, record);
+    void audit({ origin, command: redact(displayCommand, secrets), cwd: dir, tier: verdict.tier, allowed: true, note: "server" });
     const collect = (stream: "stdout" | "stderr", chunk: Buffer) => {
       record[stream] = (record[stream] + chunk.toString()).slice(-LOG_LIMIT);
       const clean = record[stream].replace(/\u001b\[[0-9;]*[a-zA-Z]/g, "");
@@ -259,6 +275,7 @@ export async function executeTerminal(opts: { command: string; projectId?: strin
       const code = error && "code" in error && typeof error.code === "number" ? error.code : error ? null : 0;
       const timedOut = !!error?.killed && Date.now() - startedAt >= timeout - 100;
       const errorOutput = [stderr || error?.message || "", timedOut ? `Perintah dihentikan setelah batas ${timeout / 1000} detik.` : ""].filter(Boolean).join("\n");
+      void audit({ origin, command: redact(displayCommand, secrets), cwd: dir, tier: verdict.tier, allowed: true, exitCode: code, durationMs: Date.now() - startedAt });
       resolve({ success: !error, command: redact(displayCommand, secrets), stdout: redact(stdout, secrets).slice(-100000), stderr: redact(errorOutput, secrets).slice(-LOG_LIMIT), exitCode: code, durationMs: Date.now() - startedAt, workingDir: dir, running: false, ...(signal ? { signal } : {}), ...(timedOut ? { timedOut } : {}) });
     });
   });
@@ -312,7 +329,7 @@ export async function handleTerminalMessage(opts: {
     const cleanCommand = command?.replace(/\s+(?:dong|cuy|ya)[.!]?$/i, "").replace(/^`|`$/g, "");
     const result = stop ? await stopTerminal(opts.projectId) : status ? await getTerminalStatus(opts.projectId) : await executeTerminal({ projectId: opts.projectId, command: cleanCommand! });
     const state = result.running ? result.ready ? "Server berjalan dan respons HTTP sudah diperiksa." : "Proses berjalan. Server belum terkonfirmasi siap." : result.timedOut ? "Perintah melewati batas waktu dan dihentikan." : result.signal ? `Proses dihentikan (${result.signal}).` : result.exitCode === null ? "Tidak ada proses server yang berjalan." : `Perintah selesai dengan exit code ${result.exitCode}.`;
-    const reply = [state, result.command ? `Perintah: \`${result.command.replace(/`/g, "")}\`` : "", `Folder: ${result.workingDir}`, result.stdout ? `Output:\n\n\`\`\`text\n${result.stdout.replace(/```/g, "'''")}\n\`\`\`` : "", result.stderr ? `Pesan proses:\n\n\`\`\`text\n${result.stderr.replace(/```/g, "'''")}\n\`\`\`` : "", result.previewUrl ? `Preview: ${result.previewUrl}` : ""].filter(Boolean).join("\n\n");
+    const reply = [state, result.command ? `Perintah: \`${result.command.replace(/`/g, "")}\`` : "", `Folder: ${result.workingDir}`, result.stdout ? `Output:\n\n\`\`\`text\n${digestOutput(result.stdout).replace(/```/g, "'''")}\n\`\`\`` : "", result.stderr ? `Pesan proses:\n\n\`\`\`text\n${digestOutput(result.stderr, { tail: 25 }).replace(/```/g, "'''")}\n\`\`\`` : "", result.previewUrl ? `Preview: ${result.previewUrl}` : ""].filter(Boolean).join("\n\n");
     return { reply, spoken: result.success ? state : "Perintah belum berhasil. Detail error sudah kutampilkan supaya bisa diperbaiki.", ...(result.previewUrl ? { previewUrl: result.previewUrl } : {}) };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Perintah terminal gagal.";

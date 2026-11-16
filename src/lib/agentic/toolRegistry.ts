@@ -2,6 +2,7 @@ import path from "path";
 import { readProjectFile, writeProjectFile, listProjectFiles, getSafeProjectPath } from "../projects";
 import { searchProjectCode } from "../localCodeSearch";
 import { executeTerminal } from "../terminalRuntime";
+import { digestOutput } from "../terminal/digest";
 import { openPage } from "../browser";
 import { runSkill, type SkillKind } from "../skillAgent";
 import { makeVideo } from "../videoMaker";
@@ -159,10 +160,10 @@ export const AGENT_TOOLS: Record<string, UnifiedTool> = {
     execute: async (args, context) => {
       try {
         const cmd = String(args.command || "").trim();
-        const res = await executeTerminal({ command: cmd, projectId: context.projectId });
+        const res = await executeTerminal({ command: cmd, projectId: context.projectId, origin: "agent" });
         const out = [
-          res.stdout ? `STDOUT:\n${res.stdout}` : "",
-          res.stderr ? `STDERR:\n${res.stderr}` : "",
+          res.stdout ? `STDOUT:\n${digestOutput(res.stdout)}` : "",
+          res.stderr ? `STDERR:\n${digestOutput(res.stderr, { tail: 25 })}` : "",
           `Exit code: ${res.exitCode ?? (res.running ? "running" : 0)}`,
         ].filter(Boolean).join("\n\n");
         return { success: res.success, output: out || "(tidak ada output)" };

@@ -2,9 +2,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import fsSync from "fs";
 import path from "path";
+import { execFileSync } from "child_process";
 import { PROVIDER_AUTH_LINKS } from "./mcpCredentials";
 
-export const MCP_PROVIDERS = ["perplexity", "firecrawl", "posthog", "playwright", "composio", "supabase", "vercel", "chrome-devtools"] as const;
+export const MCP_PROVIDERS = ["perplexity", "firecrawl", "posthog", "playwright", "composio", "supabase", "vercel", "chrome-devtools", "github"] as const;
 export type McpProvider = (typeof MCP_PROVIDERS)[number];
 
 export const MCP_CATALOG: Record<McpProvider, { name: string; purpose: string; docs: string; env: string }> = {
@@ -16,6 +17,7 @@ export const MCP_CATALOG: Record<McpProvider, { name: string; purpose: string; d
   supabase: { name: "Supabase", purpose: "Skema database, tabel, dan migrasi", docs: "https://github.com/supabase/mcp", env: "SUPABASE_ACCESS_TOKEN" },
   vercel: { name: "Vercel", purpose: "Status deployment, proyek, dan log build", docs: "https://vercel.com/docs/mcp/vercel-mcp", env: "VERCEL_TOKEN" },
   "chrome-devtools": { name: "Chrome DevTools", purpose: "Inspeksi live DOM, console error, dan performa browser", docs: "https://github.com/ChromeDevTools/chrome-devtools-mcp", env: "CHROME_DEVTOOLS_MCP_URL" },
+  github: { name: "GitHub", purpose: "Baca repo, issue, PR, dan hasil CI (mode baca)", docs: "https://github.com/github/github-mcp-server", env: "GITHUB_TOKEN" },
 };
 
 export function isMcpProvider(value: unknown): value is McpProvider {
@@ -36,8 +38,33 @@ function getDynamicCredential(provider: McpProvider): { token?: string; customUr
   return {};
 }
 
+/**
+ * Token GitHub: GITHUB_TOKEN di env, atau diambil dari `gh auth token` (login GitHub CLI di komputer ini).
+ * Lewat gh, token tidak pernah diketik ke aplikasi atau disimpan di file Vox. Hasil di-cache 5 menit.
+ */
+let ghToken: { value: string; at: number } | null = null;
+export function githubToken(): string {
+  if (process.env.GITHUB_TOKEN?.trim()) return process.env.GITHUB_TOKEN.trim();
+  if (ghToken && Date.now() - ghToken.at < 300_000) return ghToken.value;
+  let value = "";
+  try {
+    value = execFileSync("gh", ["auth", "token"], {
+      timeout: 4000, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"],
+      env: { ...process.env, PATH: `${process.env.PATH ?? ""}:/opt/homebrew/bin:/usr/local/bin` },
+    }).trim();
+  } catch {}
+  ghToken = { value, at: Date.now() };
+  return value;
+}
+
 function endpoint(provider: McpProvider): { url: URL; headers: HeadersInit } | null {
   const cred = getDynamicCredential(provider);
+
+  if (provider === "github") {
+    const token = cred.token || githubToken();
+    // Endpoint /readonly: server GitHub sendiri yang menolak semua alat tulis
+    return token ? { url: new URL(process.env.GITHUB_MCP_URL || "https://api.githubcopilot.com/mcp/readonly"), headers: { Authorization: `Bearer ${token}` } } : null;
+  }
 
   if (provider === "perplexity") {
     const token = cred.token || process.env.PERPLEXITY_API_KEY;
@@ -79,7 +106,7 @@ export function mcpProviderStatus() {
   return MCP_PROVIDERS.map((id) => {
     const isLocal = id === "chrome-devtools" || id === "playwright";
     const cred = getDynamicCredential(id);
-    const hasToken = !!cred.token || !!process.env[MCP_CATALOG[id].env];
+    const hasToken = !!cred.token || !!process.env[MCP_CATALOG[id].env] || (id === "github" && !!githubToken());
     const isSupabaseConfigured = id === "supabase" && (hasToken || !!(process.env.SUPABASE_URL || process.env.SUPABASE_ANON_KEY));
     const authLink = PROVIDER_AUTH_LINKS[id];
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { TerminalPane, type TerminalPaneHandle } from "./TerminalPane";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { connectLocalProject } from "@/lib/browserLocalProject";
 import {
@@ -738,6 +739,8 @@ export function RightWorkspacePanel({
   const [inputCmd, setInputCmd] = useState("");
   const [isRunningCmd, setIsRunningCmd] = useState(false);
   const terminalEndRef = useRef<HTMLDivElement | null>(null);
+  const [liveTerminal, setLiveTerminal] = useState(true);
+  const paneRef = useRef<TerminalPaneHandle | null>(null);
   const monitoredLogId = logs.findLast((entry) => entry.running)?.id;
 
   useEffect(() => {
@@ -764,6 +767,7 @@ export function RightWorkspacePanel({
 
   const executeCommand = async (cmdToRun: string) => {
     if (!cmdToRun.trim() || isRunningCmd) return;
+    if (liveTerminal && !/^(?:status|stop)\s+server$/i.test(cmdToRun.trim())) { paneRef.current?.run(cmdToRun.trim()); setInputCmd(""); return; }
     setIsRunningCmd(true);
     const start = Date.now();
 
@@ -1556,6 +1560,13 @@ export function RightWorkspacePanel({
           <div className="flex-1 flex flex-col overflow-hidden bg-base font-mono text-xs">
             {/* Quick Command Pills */}
             <div className="p-2 bg-raised border-b border-line flex items-center gap-1.5 overflow-x-auto scrollbar-none text-[11px]">
+              <button
+                onClick={() => setLiveTerminal((v) => !v)}
+                className="px-2 py-0.5 bg-accent/15 hover:bg-accent/25 text-accent border border-accent/50 rounded-lg shrink-0 font-semibold"
+                title={liveTerminal ? "Terminal interaktif aktif. Klik untuk mode riwayat perintah." : "Mode riwayat. Klik untuk terminal interaktif."}
+              >
+                {liveTerminal ? "Interaktif" : "Riwayat"}
+              </button>
               <button onClick={() => executeCommand("npm run dev")} disabled={isRunningCmd} className="px-2 py-0.5 bg-raised hover:bg-hover text-accent border border-line-strong rounded-lg shrink-0">npm dev</button>
               <button onClick={() => executeCommand("status server")} disabled={isRunningCmd} className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 border border-line-strong rounded-lg shrink-0">Status server</button>
               <button onClick={() => executeCommand("stop server")} disabled={isRunningCmd} className="px-2 py-0.5 bg-raised hover:bg-hover text-fg-2 border border-line-strong rounded-lg shrink-0">Stop server</button>
@@ -1620,6 +1631,10 @@ export function RightWorkspacePanel({
               </button>
             </div>
 
+            {liveTerminal ? (
+              <TerminalPane ref={paneRef} projectId={activeProjectId} />
+            ) : (
+              <>
             {/* Terminal Output Log */}
             <div className="flex-1 p-3 overflow-y-auto space-y-3">
               {logs.map((log) => (
@@ -1686,6 +1701,8 @@ export function RightWorkspacePanel({
                 <span>Run</span>
               </button>
             </form>
+              </>
+            )}
           </div>
         )}
 
