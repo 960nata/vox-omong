@@ -32,7 +32,13 @@
     "skills:list": "node scripts/skill-engine.mjs list",
     "skills:install": "node scripts/skill-engine.mjs install-all",
     "skills:info": "node scripts/skill-engine.mjs info",
-    "vox": "node scripts/vox-cli.mjs"
+    "vox": "node scripts/vox-cli.mjs",
+    "desktop": "electron .",
+    "desktop:smoke": "VOX_SMOKE=1 electron .",
+    "desktop:next": "VOX_DESKTOP=1 next build --webpack",
+    "desktop:build": "npm run desktop:next && npm run desktop:prepare && electron-builder --mac",
+    "desktop:pack": "npm run desktop:next && npm run desktop:prepare && electron-builder --dir",
+    "desktop:prepare": "node scripts/desktop-prepare.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -41,6 +47,7 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "animejs": "^4.5.0",
+    "electron-updater": "^6.8.11",
     "jszip": "^3.10.2",
     "lottie-web": "^5.13.0",
     "lucide-react": "^1.16.0",
@@ -60,6 +67,8 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "electron": "^38.8.6",
+    "electron-builder": "^26.18.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.5",
     "postcss": "^8.5.32",
@@ -68,5 +77,6 @@
   },
   "overrides": {
     "magic-string": "0.30.17"
-  }
+  },
+  "main": "electron/main.cjs"
 }

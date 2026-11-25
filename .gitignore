@@ -58,3 +58,7 @@ jarvis-call/.venv/
 # installer/arsip besar yang cuma buat dibedah lokal (mis. OpenBot-*.dmg)
 *.dmg
 *.pkg
+
+# shell desktop (Electron)
+/dist-desktop/
+/.vox-desktop/

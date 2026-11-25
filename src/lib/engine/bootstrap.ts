@@ -13,6 +13,7 @@ import { isSkillTask, runSkillEngine } from "@/lib/skillEngine";
 import { resolveSkill } from "@/lib/skillHub";
 import { handleTerminalMessage } from "@/lib/terminalRuntime";
 import { listProjects } from "@/lib/projects";
+import { runProvider, type ProviderId } from "@/lib/providers";
 import { setAutomationAgents } from "./automation";
 import { setRoutinePromptRunner } from "./scheduler";
 import { setThreadExecutor } from "./threads";
@@ -129,6 +130,27 @@ export function bootEngine(): void {
       signal,
     });
     return { reply: run.reply, previewUrl: run.previewUrl ?? null, via: run.via };
+  });
+
+  // Step `cli-agent`: jalankan prompt di CLI provider yang login pakai langganan user
+  // (ChatGPT Plus / Claude Pro / Google AI Pro) — tanpa API key. Mode tulis harus diminta.
+  registerStepRunner("cli-agent", async ({ input, signal, step }) => {
+    const prompt = typeof input.prompt === "string" ? input.prompt : "";
+    if (!prompt.trim()) throw new Error(`Step "${step.id}" butuh field \`prompt\`.`);
+    const result = await runProvider({
+      provider: (typeof input.provider === "string" ? input.provider : "codex") as ProviderId,
+      prompt,
+      model: typeof input.model === "string" ? input.model : undefined,
+      cwd: typeof input.cwd === "string" ? input.cwd : undefined,
+      write: input.write === true,
+      signal,
+    });
+    return {
+      reply: result.text,
+      usage: result.usage,
+      sessionId: result.sessionId,
+      steps: result.steps,
+    };
   });
 
   // Thread: satu prompt per thread, progres dilaporkan ke UI.

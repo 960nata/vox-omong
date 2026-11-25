@@ -1,0 +1,54 @@
+# Konfigurasi paket desktop VOX·AI Studio.
+# Pakai: npm run desktop:build  (build Next standalone + bikin .dmg / .zip)
+appId: dev.hadinata.vox
+productName: VOX·AI Studio
+copyright: Copyright © Dicky Hadinata
+
+directories:
+  output: dist-desktop
+  buildResources: build
+
+# Hanya shell Electron yang masuk app.asar; app Next-nya ikut sebagai resource
+# supaya `server.js` bisa dijalankan sebagai proses anak Node.
+# Server Next ikut sebagai berkas aplikasi tapi di-unpack dari asar, karena `server.js`
+# dijalankan sebagai proses anak Node dan butuh node_modules-nya di filesystem nyata.
+# (extraResources tidak dipakai: electron-builder membuang node_modules dari sana.)
+files:
+  - electron/**/*
+  - package.json
+  - "!node_modules/**/*"
+  - .vox-desktop/server/**/*
+
+asarUnpack:
+  - .vox-desktop/server/**/*
+
+asar: true
+npmRebuild: false
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+  darkModeSupport: true
+  # Belum ada sertifikat Apple Developer: build lokal tidak ditandatangani/dinotarisasi.
+  # Isi CSC_LINK + CSC_KEY_PASSWORD kalau mau rilis publik.
+  identity: null
+  extendInfo:
+    NSMicrophoneUsageDescription: VOX memakai mikrofon untuk perintah suara.
+    LSMinimumSystemVersion: "12.0"
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+
+linux:
+  target: [AppImage]
+  category: Utility
+
+protocols:
+  - name: VOX deep link
+    schemes: [vox]

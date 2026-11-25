@@ -290,7 +290,7 @@ export async function generateAIResponse({
         // Selalu prioritaskan DeepSeek V4.1 Flash via key hemat (Classai Prime)
         // Konsumsi hanya ~1.000 kredit per respon (bukan 4.000.000 kredit di Opus/Sonnet Premium!)
         let chatModel = "deepseek-v4.1-flash";
-        let chatKey = process.env.AI_GATEWAY_KEY_CHEAP || bearerKey;
+        const chatKey = process.env.AI_GATEWAY_KEY_CHEAP || bearerKey;
 
         const effectiveImgUrl = imageDataUri || (imageUri && imageUri.startsWith("data:image/") ? imageUri : undefined);
         const isVisionTask = !!effectiveImgUrl;
