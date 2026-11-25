@@ -14,6 +14,23 @@ interface VoxDesktopInfo {
   keepAwake: boolean;
 }
 
+/** Aksi yang bisa dikirim menu bar native (lihat electron/menu.cjs). */
+type VoxMenuAction =
+  | "chat-baru"
+  | "thread-baru"
+  | "tanya-samping"
+  | "workflow-baru"
+  | "workflow-impor"
+  | "routine-baru"
+  | "jalankan-routine"
+  | "panel-provider"
+  | "panel-workflow"
+  | "panel-routine"
+  | "panel-thread"
+  | "panel-memory"
+  | "pengaturan"
+  | "cari";
+
 interface VoxDesktopBridge {
   readonly desktop: true;
   info(): Promise<VoxDesktopInfo>;
@@ -22,6 +39,8 @@ interface VoxDesktopBridge {
   /** Hanya perintah yang sudah di-whitelist: "codex login" | "claude login" | "gemini". */
   providerLogin(command: "codex login" | "claude login" | "gemini"): Promise<boolean>;
   openExternal(url: string): Promise<boolean>;
+  /** Aksi dari menu bar native. Mengembalikan fungsi untuk berhenti mendengarkan. */
+  onMenu(handler: (action: VoxMenuAction) => void): () => void;
   /** Mengembalikan fungsi untuk berhenti mendengarkan. */
   onDeepLink(handler: (url: string) => void): () => void;
 }

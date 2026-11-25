@@ -71,7 +71,7 @@ function standaloneEntry(resourcesPath, projectRoot) {
 /**
  * @returns {Promise<{ url: string, stop: () => void, log: string[] }>}
  */
-async function startServer({ isDev, resourcesPath, projectRoot, devPort = 3000, env = {} }) {
+async function startServer({ isDev, resourcesPath, projectRoot, devPort = 3000, env = {}, dataRoot }) {
   const log = [];
 
   if (isDev) {
@@ -92,11 +92,17 @@ async function startServer({ isDev, resourcesPath, projectRoot, devPort = 3000, 
   }
 
   const port = await freePort();
-  const child = spawn(process.execPath, [entry], {
-    cwd: path.dirname(entry),
+  // Dijalankan lewat pembungkus supaya datanya mendarat di folder pengguna, bukan di dalam bundle.
+  const launcher = path.join(__dirname, "launch-server.cjs");
+  const home = dataRoot || path.dirname(entry);
+  fs.mkdirSync(home, { recursive: true });
+  const child = spawn(process.execPath, [launcher], {
+    cwd: home,
     env: {
       ...process.env,
       ...env,
+      VOX_SERVER_ENTRY: entry,
+      VOX_DATA_ROOT: home,
       // Pakai Node yang menyatu di dalam Electron, bukan Node sistem.
       ELECTRON_RUN_AS_NODE: "1",
       NODE_ENV: "production",

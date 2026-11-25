@@ -25,6 +25,11 @@ asarUnpack:
 asar: true
 npmRebuild: false
 
+# Hanya bahasa yang dipakai VOX; sisanya (~50 folder *.lproj) dibuang dari Electron.
+electronLanguages:
+  - en
+  - id
+
 mac:
   category: public.app-category.productivity
   target:

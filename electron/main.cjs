@@ -16,6 +16,7 @@ const { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeIma
 const path = require("node:path");
 const fs = require("node:fs");
 const { startServer, HOST } = require("./server.cjs");
+const { applyMenu } = require("./menu.cjs");
 
 const isDev = !app.isPackaged;
 const projectRoot = path.join(__dirname, "..");
@@ -33,6 +34,43 @@ let pendingDeepLink = null;
 
 app.setName("VOX·AI Studio");
 if (process.platform === "darwin") app.setAboutPanelOptions({ applicationName: "VOX·AI Studio" });
+
+// ───────────────────────────── gaya khusus desktop ─────────────────────────────
+
+/**
+ * Di macOS jendelanya memakai `titleBarStyle: "hiddenInset"`, jadi tombol merah-kuning-hijau
+ * melayang di atas halaman dan menutupi pojok kiri header app.
+ *
+ * Gaya ini disuntik lewat `webContents.insertCSS`, bukan ditaruh di berkas CSS app, karena:
+ * (1) tampilan web di browser sama sekali tidak ikut berubah, dan (2) React tidak bisa
+ * membuangnya saat hydration — sempat dicoba lewat atribut di JSX dan atributnya hilang.
+ */
+const DESKTOP_CSS = `
+  header:first-of-type {
+    /* ruang untuk tiga tombol jendela macOS */
+    padding-left: 84px !important;
+    -webkit-app-region: drag;
+  }
+  /* apa pun yang bisa diklik harus tetap bisa diklik, bukan ikut menyeret jendela */
+  header:first-of-type button,
+  header:first-of-type a,
+  header:first-of-type input,
+  header:first-of-type select,
+  header:first-of-type textarea,
+  header:first-of-type [role="button"],
+  header:first-of-type [contenteditable="true"] {
+    -webkit-app-region: no-drag;
+  }
+`;
+
+async function applyDesktopCss(contents) {
+  if (process.platform !== "darwin") return;
+  try {
+    await contents.insertCSS(DESKTOP_CSS);
+  } catch {
+    // gagal menyuntik CSS tidak boleh menjatuhkan app; paling header-nya agak sempit
+  }
+}
 
 // ───────────────────────────── jendela ─────────────────────────────
 
@@ -54,6 +92,8 @@ function createWindow() {
     show: false,
     backgroundColor: "#0b0b0f",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    // Header app tingginya 56px; posisikan tombol jendela di tengahnya.
+    ...(process.platform === "darwin" ? { trafficLightPosition: { x: 16, y: 20 } } : {}),
     ...(icon ? { icon } : {}),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -62,6 +102,11 @@ function createWindow() {
       sandbox: true,
       spellcheck: true,
     },
+  });
+
+  // `did-finish-load` dipakai agar CSS tetap terpasang setelah reload / navigasi internal.
+  mainWindow.webContents.on("did-finish-load", () => {
+    void applyDesktopCss(mainWindow.webContents);
   });
 
   mainWindow.once("ready-to-show", () => {
@@ -128,7 +173,19 @@ function keepAwake(on) {
     keepAwakeId = -1;
   }
   refreshTray();
+  refreshMenu();
   return keepAwakeId >= 0;
+}
+
+/** Menu bar dibangun ulang supaya centang (keep-awake) ikut berubah. */
+function refreshMenu() {
+  applyMenu({
+    getWindow: () => mainWindow,
+    keepAwake,
+    isKeepAwake: () => keepAwakeId >= 0,
+    showWindow,
+    showServerLog,
+  });
 }
 
 function refreshTray() {
@@ -299,11 +356,20 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     registerIpc();
+    refreshMenu();
     createTray();
     const window = createWindow();
 
     try {
-      server = await startServer({ isDev, resourcesPath: process.resourcesPath, projectRoot, devPort: DEV_PORT });
+      server = await startServer({
+        isDev,
+        resourcesPath: process.resourcesPath,
+        projectRoot,
+        devPort: DEV_PORT,
+        // Data app (chat, project, memory, engine) disimpan di folder pengguna supaya tetap ada
+        // setelah update dan tidak mencoba menulis ke dalam bundle yang read-only.
+        dataRoot: app.getPath("userData"),
+      });
       await window.loadURL(server.url);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -328,7 +394,29 @@ if (!app.requestSingleInstanceLock()) {
     // Mode uji: pastikan jendela benar-benar memuat app, lalu keluar. Dipakai `desktop:smoke`.
     if (process.env.VOX_SMOKE === "1") {
       const title = window.webContents.getTitle();
+      const menu = Menu.getApplicationMenu();
+      const labels = (menu?.items ?? []).map((item) => item.label).join(" / ");
       console.log(`VOX_SMOKE_OK ${server.url} | judul: ${title}`);
+      console.log(`VOX_SMOKE_MENU ${labels}`);
+      // Beri waktu React hydrate dulu; sebelum itu header belum ada di DOM.
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      // Yang dicek efek akhirnya di layar, bukan atribut di markup.
+      const ui = await window.webContents
+        .executeJavaScript(
+          `(() => {
+            const el = document.querySelector("header");
+            const style = el ? getComputedStyle(el) : null;
+            const btn = el ? el.querySelector("button") : null;
+            return JSON.stringify({
+              header: !!el,
+              padLeft: style ? style.paddingLeft : null,
+              drag: style ? style.webkitAppRegion : null,
+              tombolBisaDiklik: btn ? getComputedStyle(btn).webkitAppRegion : null,
+            });
+          })()`
+        )
+        .catch((error) => `{"error":${JSON.stringify(String(error))}}`);
+      console.log(`VOX_SMOKE_UI ${ui}`);
       /** @type {any} */ (app).isQuittingVox = true;
       server.stop();
       // `app.exit` bukan `app.quit`: dengan tray hidup, quit tidak selalu mengakhiri proses.

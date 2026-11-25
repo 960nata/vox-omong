@@ -37,8 +37,42 @@ function blocked(name) {
   return BLOCKED.some((rule) => rule.test(name));
 }
 
+/**
+ * Paket yang tidak boleh ada di server, walau sempat ikut tertarik tracing Next.
+ * `electron` sendiri ~770 MB (ada binary Electron utuh di dalamnya) dan server Next
+ * tidak pernah memuatnya — ini jaring pengaman kalau `outputFileTracingExcludes` terlewat.
+ */
+const PRUNE_PACKAGES = [
+  "electron",
+  "electron-builder",
+  "electron-updater",
+  "app-builder-lib",
+  "dmg-builder",
+  "@electron",
+  "vitest",
+  "eslint",
+  "esbuild",
+  "@esbuild",
+];
+
 let copied = 0;
 const skipped = [];
+
+async function dirSize(dir) {
+  let total = 0;
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += await dirSize(full);
+    else {
+      const stat = await fs.stat(full).catch(() => null);
+      if (stat) total += stat.size;
+    }
+  }
+  return total;
+}
+
+const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 
 async function copyDir(from, to) {
   const entries = await fs.readdir(from, { withFileTypes: true });
@@ -94,6 +128,17 @@ async function main() {
     await copyDir(path.join(root, "public"), path.join(target, "public"));
   }
 
+  // Buang paket yang jelas tidak dipakai server, lalu laporkan hematnya.
+  const pruned = [];
+  for (const name of PRUNE_PACKAGES) {
+    const dir = path.join(target, "node_modules", name);
+    if (!(await exists(dir))) continue;
+    const size = await dirSize(dir);
+    await fs.rm(dir, { recursive: true, force: true });
+    pruned.push(`${name} (${mb(size)})`);
+  }
+  if (pruned.length) console.log(`[desktop] dipangkas: ${pruned.join(", ")}`);
+
   // Pagar pengaman: kalau ada yang lolos, hentikan build daripada merilis rahasia.
   const leaks = [];
   const scan = async (dir) => {
@@ -111,8 +156,21 @@ async function main() {
     }
   }
 
-  console.log(`[desktop] ${copied} berkas disiapkan di .vox-desktop/server`);
+  const total = await dirSize(target);
+  console.log(`[desktop] ${copied} berkas, ${mb(total)} disiapkan di .vox-desktop/server`);
   if (skipped.length) console.log(`[desktop] dilewati (rahasia/sampah): ${[...new Set(skipped)].join(", ")}`);
+
+  // Paket terbesar, biar kalau membengkak lagi langsung kelihatan penyebabnya.
+  const modules = path.join(target, "node_modules");
+  if (await exists(modules)) {
+    const sizes = [];
+    for (const entry of await fs.readdir(modules, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      sizes.push([entry.name, await dirSize(path.join(modules, entry.name))]);
+    }
+    const top = sizes.sort((a, b) => b[1] - a[1]).slice(0, 5);
+    console.log(`[desktop] terbesar: ${top.map(([n, v]) => `${n} ${mb(v)}`).join(", ")}`);
+  }
 }
 
 main().catch((error) => {

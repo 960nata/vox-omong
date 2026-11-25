@@ -23,6 +23,27 @@ const nextConfig: NextConfig = {
    */
   ...(process.env.VOX_DESKTOP === "1" ? { output: "standalone" as const } : {}),
   /**
+   * Jangan ikut paketkan toolchain desktop & dev ke dalam server. Tanpa ini, `electron`
+   * (beserta binary ~250 MB-nya) ikut tertarik ke `.next/standalone` dan bundle-nya jadi
+   * ratusan MB lebih besar, padahal server Next tidak pernah memuat Electron.
+   */
+  outputFileTracingExcludes: {
+    "*": [
+      "node_modules/electron/**",
+      "node_modules/electron-builder/**",
+      "node_modules/electron-updater/**",
+      "node_modules/app-builder-lib/**",
+      "node_modules/dmg-builder/**",
+      "node_modules/@electron/**",
+      "node_modules/vitest/**",
+      "node_modules/eslint/**",
+      "node_modules/@esbuild/**",
+      "node_modules/esbuild/**",
+      "node_modules/@img/sharp-wasm32/**",
+      "node_modules/**/*.md",
+    ],
+  },
+  /**
    * pptxgenjs (dipakai ArtifactCard di browser) punya `import('node:fs')` / `import('node:https')`
    * yang hanya jalan di Node. Webpack menolak skema `node:` sebelum sempat membaca field
    * "browser" milik paket itu, jadi di bundle klien modul-modul ini dikosongkan.

@@ -11,6 +11,21 @@
 
 const { contextBridge, ipcRenderer } = require("electron");
 
+/**
+ * Penanda untuk CSS: `html[data-vox-desktop="mac"]`. Dipakai globals.css untuk memberi ruang
+ * bagi tombol jendela macOS dan menjadikan header bisa diseret. Di tab browser atribut ini
+ * tidak pernah ada, jadi tampilan web sama sekali tidak berubah.
+ */
+function markDesktop() {
+  try {
+    document.documentElement.dataset.voxDesktop = process.platform === "darwin" ? "mac" : "lain";
+  } catch {
+    // dokumen belum siap: coba lagi saat DOM selesai dimuat
+  }
+}
+markDesktop();
+window.addEventListener("DOMContentLoaded", markDesktop);
+
 contextBridge.exposeInMainWorld("vox", {
   /** Penanda bahwa app jalan di shell desktop, bukan tab browser. */
   desktop: true,
@@ -20,6 +35,16 @@ contextBridge.exposeInMainWorld("vox", {
   /** `command` harus salah satu dari daftar putih di main: "codex login" | "claude login" | "gemini". */
   providerLogin: (command) => ipcRenderer.invoke("vox:provider-login", command),
   openExternal: (url) => ipcRenderer.invoke("vox:open-external", url),
+  /**
+   * Aksi dari menu bar native (Berkas > Chat baru, Tampilan > Workflow, dst.).
+   * Halaman boleh mengabaikan aksi yang belum ditanganinya.
+   */
+  onMenu: (handler) => {
+    if (typeof handler !== "function") return () => {};
+    const listener = (_event, action) => handler(String(action));
+    ipcRenderer.on("vox:menu", listener);
+    return () => ipcRenderer.removeListener("vox:menu", listener);
+  },
   onDeepLink: (handler) => {
     if (typeof handler !== "function") return () => {};
     const listener = (_event, url) => handler(String(url));
