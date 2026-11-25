@@ -54,3 +54,7 @@ jarvis-call/.venv/
 *.patch
 # Local code intelligence runtimes and indexes
 .tools/
+
+# installer/arsip besar yang cuma buat dibedah lokal (mis. OpenBot-*.dmg)
+*.dmg
+*.pkg

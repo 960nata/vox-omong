@@ -31,7 +31,8 @@
     "wa": "node scripts/wa-bot.mjs",
     "skills:list": "node scripts/skill-engine.mjs list",
     "skills:install": "node scripts/skill-engine.mjs install-all",
-    "skills:info": "node scripts/skill-engine.mjs info"
+    "skills:info": "node scripts/skill-engine.mjs info",
+    "vox": "node scripts/vox-cli.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
