@@ -43,6 +43,7 @@ import {
   Sliders,
 } from "lucide-react";
 import { useTheme } from "@/lib/theme";
+import { onTauriMenu } from "@/lib/tauriBridge";
 import type { AIMode } from "@/lib/types";
 
 const AI_MODES: Array<{
@@ -155,6 +156,45 @@ export default function VoiceAiStudio() {
         }
       })
       .catch(() => {});
+  }, []);
+
+  // Hubungkan menu bar native desktop (Electron / Tauri Rust) ke state halaman VOX
+  const newChatRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.location.search.includes("panel=providers")) {
+      setIsSettingsOpen(true);
+    }
+    const handleMenuAction = (action: string) => {
+      switch (action) {
+        case "chat-baru":
+        case "thread-baru":
+          newChatRef.current();
+          break;
+        case "pengaturan":
+        case "panel-provider":
+          setIsSettingsOpen(true);
+          break;
+        case "cari":
+        case "panel-thread":
+        case "panel-memory":
+          setIsSidebarOpen(true);
+          break;
+        case "panel-workflow":
+        case "panel-routine":
+          setIsRightPanelOpen(true);
+          setWorkspaceTab("explorer");
+          break;
+        default:
+          break;
+      }
+    };
+    const unsubElectron = window.vox?.desktop ? window.vox.onMenu(handleMenuAction) : () => {};
+    const unsubTauri = onTauriMenu(handleMenuAction);
+    return () => {
+      unsubElectron();
+      unsubTauri();
+    };
   }, []);
 
   const handleVerifyPin = async (e?: React.FormEvent) => {
@@ -435,6 +475,7 @@ export default function VoiceAiStudio() {
     let stopped = false;
     let sawRunning = false;
     const tick = async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
       try {
         const res = await fetch("/api/agent/tasks?all=1");
         const data = await res.json();
@@ -453,7 +494,7 @@ export default function VoiceAiStudio() {
         // polling gagal sesaat tidak perlu mengganggu pengguna; dicoba lagi di putaran berikutnya
       }
     };
-    const timer = setInterval(tick, 4000);
+    const timer = setInterval(tick, 8000);
     return () => {
       stopped = true;
       clearInterval(timer);
@@ -849,6 +890,8 @@ export default function VoiceAiStudio() {
           message: text,
           language: settingsRef.current.language,
           apiKey: settingsRef.current.apiKey,
+          customGatewayUrl: settingsRef.current.customGatewayUrl,
+          customModel: settingsRef.current.customModel,
           aiMode: settingsRef.current.aiMode || "duo",
           agentMode: settingsRef.current.agentMode || "interactive",
           agentPermission: settingsRef.current.agentPermission || "manual",
@@ -1156,6 +1199,7 @@ export default function VoiceAiStudio() {
       console.error("Failed to create new conversation:", err);
     }
   };
+  newChatRef.current = handleNewConversation;
 
   const handleDeleteConversation = async (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();

@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { searchPhotos, searchVideos, trackPhotoUse, describeMedia, type MediaPack, type Photo, type Video } from "./media";
 import { DESIGN_RULES, MOTION_RECIPES, planDesign, describePlan, type DesignPlan } from "./designKnowledge";
 import { designBrief, topUxRules } from "./uiuxKnowledge";
@@ -89,6 +90,16 @@ export async function writeProjectHtml(projectId: string, html: string) {
 
 const LLM_CACHE = new Map<string, { text: string; model: string; t: number }>();
 
+const customGatewayStore = new AsyncLocalStorage<{ url?: string; model?: string }>();
+
+export function runWithCustomGateway<T>(
+  cfg: { url?: string; model?: string },
+  fn: () => Promise<T>
+): Promise<T> {
+  if (!cfg.url && !cfg.model) return fn();
+  return customGatewayStore.run(cfg, fn);
+}
+
 export async function callLLM({
   system,
   prompt,
@@ -140,6 +151,58 @@ export async function callLLM({
     }
     return { text, model };
   };
+
+  // 0. Custom Gateway / AI Lokal dari Pengaturan (Ollama, LM Studio, vLLM, atau Custom OpenAI-Compat URL)
+  const gwCtx = customGatewayStore.getStore();
+  if (gwCtx?.url && gwCtx.url.trim()) {
+    const customBase = gwCtx.url.trim().replace(/\/+$/, "");
+    const customEndpoint = customBase.endsWith("/chat/completions") ? customBase : `${customBase}/chat/completions`;
+    const isLocal = /127\.0\.0\.1|localhost/.test(customBase);
+    let chosenModel = gwCtx.model?.trim() || "";
+    try {
+      // Untuk Ollama / lokal tanpa model dipilih, ambil model pertama yang terpasang
+      if (!chosenModel && customBase.includes("11434")) {
+        const tags = await fetch("http://127.0.0.1:11434/api/tags", { signal: AbortSignal.timeout(1500) })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+        chosenModel = tags?.models?.[0]?.name || "llama3.2";
+      }
+      if (!chosenModel) chosenModel = "default";
+      const res = await fetch(customEndpoint, {
+        method: "POST",
+        signal: AbortSignal.timeout(Math.max(timeoutMs || 0, 60000)),
+        headers: {
+          "Content-Type": "application/json",
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model: chosenModel,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: `${prompt}${json ? "\n\nBalas HANYA JSON valid." : ""}` },
+          ],
+          temperature: temp,
+          max_tokens: maxTokens,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.choices?.[0]?.message?.content || "";
+        if (text && typeof text === "string" && text.trim()) {
+          void recordLlmUsage({
+            model: chosenModel,
+            source: isLocal ? "custom_local" : "freellmapi",
+            promptTokens: data.usage?.prompt_tokens || Math.round((system.length + prompt.length) / 4),
+            completionTokens: data.usage?.completion_tokens || Math.round(text.length / 4),
+          }).catch(() => {});
+          return done(text.trim(), chosenModel);
+        }
+      }
+      errors.push(`Custom Gateway (${customBase}): HTTP ${res.status}`);
+    } catch (err) {
+      errors.push(`Custom Gateway (${customBase}): ${(err as Error).message}`);
+    }
+  }
 
   // 1. Google Gemini (dipakai kalau ada key AIzaSy… — paling bagus untuk kode panjang)
   const rawUrl = process.env.AI_GATEWAY_URL || "https://router.classai.id/v1";
@@ -240,7 +303,7 @@ export async function callLLM({
       const activeUserKey = (apiKey && apiKey.startsWith("aigw_")) ? apiKey : userGwKey;
       const res = await fetch(userGwUrl, {
         method: "POST",
-        signal: AbortSignal.timeout(timeoutMs || 12000),
+        signal: AbortSignal.timeout(Math.max(timeoutMs || 0, 45000)),
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${activeUserKey}`,
@@ -398,19 +461,23 @@ export async function callLLM({
         }
       }
 
-      // Smart Waterfall: 3 attempts dengan tameng timeout agar tidak mogok
-      for (let attempt = 0; attempt < 3; attempt++) {
-        // Attempt 0: Model yang dipilih lu
-        // Attempt 1: Failover ke DeepSeek Flash (kenceng & stabil 2s)
-        // Attempt 2: Failover ke Gateway Pribadi / Model Free
-        // Nama alias (claude-opus-5.0, qwen-max, ...) dibalas 404 oleh router: selalu kirim ID katalog
-        const model = routerModel(attempt === 0 ? targetModel : attempt === 1 ? "deepseek-v4.1-flash" : "nemotron-3.5-lightning:free");
+      // Smart Waterfall + Auto-Rotasi: jika kuota/rate-limit habis (402/429), otomatis pindah ke model free lain
+      const rotationChain = [
+        targetModel,
+        "deepseek-v4.1-flash",
+        "kai-baik",
+        "nemotron-3.5-lightning:free",
+        "solar-mini4:free",
+        "gemma-4-31b:free",
+      ];
+      for (let attempt = 0; attempt < rotationChain.length; attempt++) {
+        const model = routerModel(rotationChain[attempt]);
         // Key hemat (Prime) untuk semua model, termasuk Opus: lane Premium ~18x lebih mahal dan bisa membalas kosong (thinking)
         const requestKey = activeGwKey;
 
         // Model berat (Claude Sonnet/Opus/GPT-6) dijaga max 9 detik agar tidak kena 499 hanging
         const isHeavyModel = /opus|sonnet|gpt-6/.test(model);
-        const effectiveTimeout = timeoutMs || (isHeavyModel ? 25000 : maxTokens >= 2000 ? 75000 : 35000);
+        const effectiveTimeout = Math.max(timeoutMs || 0, isHeavyModel ? 90000 : maxTokens >= 2000 ? 90000 : 45000);
 
         try {
           const userContent = imageDataUri
@@ -507,6 +574,56 @@ export async function callLLM({
           errors.push(`Gateway: ${(err as Error).message}`);
         }
       }
+    }
+  }
+
+  // 4. Fallback AI Lokal (Ollama) + FreeLLMAPI Native (auto-rotasi jika kuota habis / tanpa .env)
+  try {
+    const tags = await fetch("http://127.0.0.1:11434/api/tags", { signal: AbortSignal.timeout(1200) })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+    const localModel = tags?.models?.[0]?.name;
+    if (localModel) {
+      const oRes = await fetch("http://127.0.0.1:11434/v1/chat/completions", {
+        method: "POST",
+        signal: AbortSignal.timeout(Math.max(timeoutMs || 0, 60000)),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: localModel,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: `${prompt}${json ? "\n\nBalas HANYA JSON valid." : ""}` },
+          ],
+          temperature: temp,
+          max_tokens: maxTokens,
+        }),
+      });
+      if (oRes.ok) {
+        const oData = await oRes.json();
+        const oText = oData.choices?.[0]?.message?.content || "";
+        if (oText.trim()) return done(oText.trim(), `ollama:${localModel}`);
+      }
+    }
+  } catch {
+    // Ollama tidak aktif — lanjut ke FreeLLMAPI Native
+  }
+
+  if (!isFreeLlmRequested) {
+    try {
+      const freeRes = await callNativeFreeLLM({
+        system,
+        prompt,
+        model: "freellmapi-auto",
+        maxTokens,
+        temperature: temp,
+        json,
+        timeoutMs,
+      });
+      if (freeRes.text && freeRes.text.trim()) {
+        return done(freeRes.text.trim(), freeRes.model);
+      }
+    } catch (err: any) {
+      errors.push(`FreeLLMAPI Fallback: ${err.message}`);
     }
   }
 

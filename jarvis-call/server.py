@@ -6,10 +6,9 @@ Webhook URL di Meta:  https://<domain-cloudflared>/whatsapp
 
 import argparse
 import asyncio
-import hashlib
-import hmac
 import json
 import sys
+import time
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -29,12 +28,15 @@ from pipecat.transports.whatsapp.client import WhatsAppClient
 
 import config
 from bot import run_bot
+from security import call_fields, signature_ok
 from tasks import TaskWatcher
 
 wa_client: Optional[WhatsAppClient] = None
 wa_api: Optional[WhatsAppApi] = None
 watcher: Optional[TaskWatcher] = None
 http: Optional[aiohttp.ClientSession] = None
+STARTED_AT = time.time()
+active_calls: set[str] = set()
 
 
 @asynccontextmanager
@@ -51,9 +53,13 @@ async def lifespan(app: FastAPI):
         )
         wa_api = WhatsAppApi(config.WHATSAPP_TOKEN, config.WHATSAPP_PHONE_NUMBER_ID, session)
         watcher = TaskWatcher(session)
+        watcher.resume()  # lanjutin tugas yang masih jalan sebelum restart
+        for w in config.startup_warnings():
+            logger.warning(w)
         logger.info(
             f"Siap. Owner: {config.OWNER_NUMBERS} | mock={config.JARVIS_MOCK} | "
-            f"jarvis={config.JARVIS_API_URL}"
+            f"jarvis={config.JARVIS_API_URL} | maks tugas paralel={config.MAX_CONCURRENT_TASKS} | "
+            f"batas telpon={config.MAX_CALL_SECS:.0f}s"
         )
         try:
             yield
@@ -66,7 +72,33 @@ app = FastAPI(title="Jarvis WA Call", lifespan=lifespan)
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "tasks": len(watcher.tasks) if watcher else 0}
+    tasks = list(watcher.tasks.values()) if watcher else []
+    jalan = [t for t in tasks if not t.done]
+    jarvis_ok: Optional[bool] = None
+    if http and not config.JARVIS_MOCK:
+        try:
+            async with http.get(
+                f"{config.JARVIS_API_URL}/api/jarvis/tasks",
+                headers={"Authorization": f"Bearer {config.JARVIS_API_SECRET}"},
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as r:
+                jarvis_ok = r.status < 400
+        except Exception:
+            jarvis_ok = False
+    return {
+        "ok": True,
+        "uptime_secs": round(time.time() - STARTED_AT),
+        "mock": config.JARVIS_MOCK,
+        "signature_check": bool(config.WHATSAPP_APP_SECRET),
+        "calls_active": sorted(active_calls),
+        "tasks_total": len(tasks),
+        "tasks_running": [
+            {"id": t.id, "instruksi": t.instruction[:80], "umur_detik": round(time.time() - t.started_at)}
+            for t in jalan
+        ],
+        "jarvis_api": jarvis_ok,
+        "warnings": config.startup_warnings(),
+    }
 
 
 @app.get("/whatsapp")
@@ -80,15 +112,6 @@ async def verify(request: Request):
         return PlainTextResponse(str(result))
     except ValueError:
         raise HTTPException(status_code=403, detail="Verification failed")
-
-
-def _signature_ok(raw: bytes, header: Optional[str]) -> bool:
-    if not config.WHATSAPP_APP_SECRET:
-        return True
-    if not header:
-        return False
-    expected = hmac.new(config.WHATSAPP_APP_SECRET.encode(), raw, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, header.split("sha256=")[-1])
 
 
 async def _forward(raw: bytes, signature: Optional[str]):
@@ -113,8 +136,11 @@ async def _forward(raw: bytes, signature: Optional[str]):
 async def webhook(request: Request, background: BackgroundTasks):
     raw = await request.body()
     sig = request.headers.get("X-Hub-Signature-256")
-    if not _signature_ok(raw, sig):
-        logger.warning("Tanda tangan webhook gak valid — ditolak")
+    if not signature_ok(raw, sig):
+        if not config.WHATSAPP_APP_SECRET:
+            logger.error("POST /whatsapp ditolak: WHATSAPP_APP_SECRET belum diisi")
+        else:
+            logger.warning("Tanda tangan webhook gak valid — ditolak")
         raise HTTPException(status_code=401, detail="bad signature")
 
     try:
@@ -122,7 +148,7 @@ async def webhook(request: Request, background: BackgroundTasks):
     except Exception:
         raise HTTPException(status_code=400, detail="invalid json")
 
-    fields = {c.get("field") for e in data.get("entry", []) for c in e.get("changes", [])}
+    fields = call_fields(data)
 
     # Event selain telpon (chat, status pesan, dll) → terusin ke bot chat Next.js
     if fields != {"calls"}:
@@ -136,21 +162,52 @@ async def webhook(request: Request, background: BackgroundTasks):
         logger.debug(f"Event calls diabaikan: {data}")
         return {"status": "ignored"}
 
-    # Whitelist: tolak telpon dari nomor selain owner
+    # Whitelist: tolak telpon dari nomor selain owner. Dicek per panggilan, jadi
+    # panggilan owner di payload yang sama tetap diproses.
+    rejected = 0
+    allowed_calls = []
     for entry in body.entry:
         for change in entry.changes:
-            if isinstance(change.value, WhatsAppConnectCallValue):
-                for c in change.value.calls:
-                    if c.event == "connect" and not config.is_owner(c.from_):
-                        logger.warning(f"Telpon dari {c.from_} DITOLAK (bukan owner)")
+            if not isinstance(change.value, WhatsAppConnectCallValue):
+                continue
+            keep = []
+            for c in change.value.calls:
+                if c.event == "connect" and not config.is_owner(c.from_):
+                    logger.warning(f"Telpon dari {c.from_} DITOLAK (bukan owner)")
+                    try:
                         await wa_api.reject_call_to_whatsapp(c.id)
-                        return {"status": "rejected"}
+                    except Exception as e:
+                        logger.warning(f"Gagal nolak telpon {c.id}: {e}")
+                    rejected += 1
+                    continue
+                keep.append(c)
+            try:
+                change.value.calls = keep
+            except Exception as e:
+                # model Pydantic yang nggak bisa diubah: jangan sampai panggilan
+                # yang sudah ditolak ikut diproses
+                logger.warning(f"Gagal nyaring daftar panggilan: {e}")
+                if rejected:
+                    return {"status": "rejected"}
+            allowed_calls.extend(keep)
+
+    if not allowed_calls:
+        return {"status": "rejected" if rejected else "ignored"}
 
     async def on_connection(connection: SmallWebRTCConnection, call: WhatsAppConnectCall):
         async def hangup():
             await wa_api.terminate_call_to_whatsapp(call.id)
 
-        background.add_task(run_bot, connection, call.from_, watcher, hangup)
+        async def guarded():
+            active_calls.add(call.from_)
+            try:
+                await run_bot(connection, call.from_, watcher, hangup)
+            except Exception as e:
+                logger.exception(f"Bot telpon error: {e}")
+            finally:
+                active_calls.discard(call.from_)
+
+        background.add_task(guarded)
 
     try:
         await wa_client.handle_webhook_request(body, on_connection)
@@ -159,7 +216,7 @@ async def webhook(request: Request, background: BackgroundTasks):
     except Exception as e:
         logger.exception(f"Error proses telpon: {e}")
         raise HTTPException(status_code=500, detail="internal error")
-    return {"status": "ok"}
+    return {"status": "ok", "rejected": rejected}
 
 
 if __name__ == "__main__":

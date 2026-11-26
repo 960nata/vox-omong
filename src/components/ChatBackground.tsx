@@ -248,7 +248,7 @@ export function ChatBackground({ isListening = false, isSpeaking = false, isProc
     let proj = perspective(Math.PI / 5, 1, 0.1, 60);
     let aspect = 1;
     const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, small ? 1.5 : 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.25);
       const cw = canvas.clientWidth;
       const ch = canvas.clientHeight;
       if (!cw || !ch) return;
@@ -286,9 +286,17 @@ export function ChatBackground({ isListening = false, isSpeaking = false, isProc
 
     let raf = 0;
     let last = performance.now();
+    let lastDraw = 0;
     let visible = true;
     const frame = (now: number) => {
-      const dt = Math.min((now - last) / 1000, 0.05);
+      const idle = state.energy < 0.02 && state.on < 0.02 && state.intro > 0.99;
+      // Saat diam (idle), cukup ~20fps agar GPU/CPU laptop tidak boros; saat suara/kursor aktif, full speed.
+      if (idle && now - lastDraw < 48) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
+      lastDraw = now;
+      const dt = Math.min((now - last) / 1000, 0.08);
       last = now;
       state.energy += (energyTarget.current - state.energy) * 0.04;
       state.t += dt * (1 + state.energy * 1.4);

@@ -38,11 +38,14 @@
     "desktop:next": "VOX_DESKTOP=1 next build --webpack",
     "desktop:build": "npm run desktop:next && npm run desktop:prepare && electron-builder --mac",
     "desktop:pack": "npm run desktop:next && npm run desktop:prepare && electron-builder --dir",
-    "desktop:prepare": "node scripts/desktop-prepare.mjs"
+    "desktop:prepare": "node scripts/desktop-prepare.mjs",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@supabase/supabase-js": "^2.119.0",
+    "@tauri-apps/api": "^2.12.5",
     "@whiskeysockets/baileys": "^7.0.0-rc14",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
@@ -63,6 +66,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.4",
+    "@tauri-apps/cli": "^2.12.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

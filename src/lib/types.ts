@@ -289,6 +289,7 @@ export interface VoiceSettings {
   temperature?: number;
   maxTokens?: number;
   customGatewayUrl?: string;
+  customModel?: string;
   personaTone?: "formal" | "casual" | "concise" | "expert";
   agentMaxSteps?: number;
   autoCriticEnabled?: boolean;

@@ -29,6 +29,30 @@ if (!dataRoot || !entry) {
 
 fs.mkdirSync(path.join(dataRoot, ".data"), { recursive: true });
 
+// Muat .env dari folder data pengguna (~/Library/Application Support/VOX·AI Studio/.env) bila ada.
+const userEnvPath = path.join(dataRoot, ".env");
+if (fs.existsSync(userEnvPath)) {
+  try {
+    const rawEnv = fs.readFileSync(userEnvPath, "utf8");
+    for (const line of rawEnv.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq <= 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      let val = trimmed.slice(eq + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      if (key && !(key in process.env)) {
+        process.env[key] = val;
+      }
+    }
+  } catch (err) {
+    console.error(`[vox] gagal membaca .env pengguna: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
 // Aset read-only yang dibaca relatif cwd — disambungkan, bukan disalin.
 const bundleDir = path.dirname(entry);
 for (const asset of ["skills", "node_modules"]) {

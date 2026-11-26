@@ -34,7 +34,7 @@ export interface FreeLLMResponse {
 export async function callNativeFreeLLM(req: FreeLLMRequest): Promise<FreeLLMResponse> {
   const targetModel = (req.model || "freellmapi-auto").toLowerCase();
   const errors: string[] = [];
-  const timeout = req.timeoutMs || 25000;
+  const timeout = Math.max(req.timeoutMs || 0, 45000);
 
   // 1. Cek apakah ada Groq Free Key di environment
   const groqKey = process.env.GROQ_API_KEY;
@@ -43,7 +43,7 @@ export async function callNativeFreeLLM(req: FreeLLMRequest): Promise<FreeLLMRes
     try {
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
-        signal: AbortSignal.timeout(Math.min(timeout, 15000)),
+        signal: AbortSignal.timeout(timeout),
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${groqKey}`,
@@ -121,7 +121,48 @@ export async function callNativeFreeLLM(req: FreeLLMRequest): Promise<FreeLLMRes
     }
   }
 
-  // 3. Provider Utama Zero-Key: Pollinations Native (100% Gratis Tanpa API Key)
+  // 2B. Cek apakah ada AI GW Free (USER_GATEWAY_KEY) di environment
+  const userGwKey = process.env.USER_GATEWAY_KEY;
+  const userGwUrl = process.env.USER_GATEWAY_URL || "https://aiinvestdesk.com/api/v1/ai/gateway";
+  if (userGwKey && userGwKey.startsWith("aigw_")) {
+    try {
+      const res = await fetch(userGwUrl, {
+        method: "POST",
+        signal: AbortSignal.timeout(timeout),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${userGwKey}`,
+        },
+        body: JSON.stringify({
+          agent: "custom",
+          prefer: ["deepseek", "groq", "cerebras", "gemini"],
+          system: req.system,
+          prompt: `${req.system}\n\n=====\n\n${req.prompt}${req.json ? "\n\nBalas HANYA JSON valid. Tanpa teks lain, tanpa pagar kode." : ""}`,
+          temperature: req.temperature ?? (req.json ? 0.2 : 0.6),
+          json: req.json,
+          maxTokens: req.maxTokens || 2048,
+        }),
+      });
+      if (res.ok) {
+        const out = await res.json();
+        const text = out?.data?.response || out?.data?.code || (typeof out?.data === "string" ? out.data : "");
+        if (text && typeof text === "string" && text.trim()) {
+          void recordLlmUsage({
+            model: "user-private-gateway",
+            source: "custom_local",
+            promptTokens: Math.round((req.system.length + req.prompt.length) / 4),
+            completionTokens: Math.round(text.length / 4),
+          }).catch(() => {});
+          return { text: text.trim(), model: "user-private-gateway", provider: "AI GW Free" };
+        }
+      }
+      errors.push(`AI GW Free: HTTP ${res.status}`);
+    } catch (e: any) {
+      errors.push(`AI GW Free: ${e.message}`);
+    }
+  }
+
+  // 3. Provider Cadangan Zero-Key: Pollinations Native (100% Gratis Tanpa API Key)
   const pollinationsModels = req.json
     ? ["openai", "mistral"]
     : targetModel.includes("cerebras") || targetModel.includes("groq")
@@ -163,6 +204,7 @@ export async function callNativeFreeLLM(req: FreeLLMRequest): Promise<FreeLLMRes
         }
       }
       errors.push(`Pollinations (${pModel}): HTTP ${res.status}`);
+      if (res.status === 402 || res.status === 429) break;
     } catch (e: any) {
       errors.push(`Pollinations (${pModel}): ${e.message}`);
     }

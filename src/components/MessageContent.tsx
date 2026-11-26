@@ -128,9 +128,53 @@ function BrowserScreenshotPreview({ url, alt }: { url: string; alt?: string }) {
   );
 }
 
-/** **tebal**, `kode`, dan judul markdown ringan. */
+/** Ekstrak palet warna hex unik (beserta nama token CSS jika ada) dari teks. */
+function extractColorPalette(text: string): Array<{ hex: string; label?: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ hex: string; label?: string }> = [];
+  const tokenRe = /(?:(--[a-z0-9-]+)\s*:\s*)?(#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3})\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = tokenRe.exec(text))) {
+    const hex = m[2].toUpperCase();
+    if (seen.has(hex)) continue;
+    seen.add(hex);
+    out.push({ hex, label: m[1] || undefined });
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+function ColorPaletteStrip({ colors }: { colors: Array<{ hex: string; label?: string }> }) {
+  const [copiedHex, setCopiedHex] = useState<string | null>(null);
+  return (
+    <div className="my-2.5 p-2.5 rounded-xl border border-line bg-canvas/80 flex flex-wrap gap-2 items-center">
+      <span className="text-[10px] font-mono uppercase tracking-wider text-fg-3 w-full">Palet Warna Terdeteksi ({colors.length})</span>
+      {colors.map(({ hex, label }) => (
+        <button
+          key={hex}
+          type="button"
+          onClick={() => {
+            navigator.clipboard?.writeText(hex);
+            setCopiedHex(hex);
+            setTimeout(() => setCopiedHex(null), 1200);
+          }}
+          title={`Salin ${hex}${label ? ` (${label})` : ""}`}
+          className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-line bg-raised hover:border-accent/50 transition-colors cursor-pointer"
+        >
+          <span className="w-4 h-4 rounded-md border border-white/20 shrink-0 shadow-xs" style={{ backgroundColor: hex }} />
+          <span className="text-[11px] font-mono text-fg">
+            {copiedHex === hex ? "Disalin!" : label ? `${label}: ${hex}` : hex}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** **tebal**, `kode`, swatch warna hex inline, dan judul markdown ringan. */
 function Inline({ text }: { text: string }) {
   const lines = text.replace(/^\n+|\n+$/g, "").split("\n");
+  const palette = extractColorPalette(text);
   return (
     <>
       {lines.map((line, i) => {
@@ -143,7 +187,7 @@ function Inline({ text }: { text: string }) {
         const heading = line.match(/^#{1,4}\s+(.*)$/);
         const body = heading ? heading[1] : line;
         const tokens = body
-          .split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\((?:https?:\/\/|\/)[^\s)]*\)|https?:\/\/[^\s<>'"]+)/g)
+          .split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\((?:https?:\/\/|\/)[^\s)]*\)|https?:\/\/[^\s<>'"]+|#[0-9a-fA-F]{6}\b)/g)
           .map((t, k) => {
             // Markdown link: [Title](https://...)
             const link = t.match(/^\[([^\]]+)\]\(((?:https?:\/\/|\/)[^\s)]*)\)$/);
@@ -200,6 +244,13 @@ function Inline({ text }: { text: string }) {
                   {t.slice(1, -1)}
                 </code>
               );
+            if (/^#[0-9a-fA-F]{6}$/.test(t))
+              return (
+                <span key={k} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-hover font-mono text-[0.85em] text-fg align-middle">
+                  <span className="inline-block w-2.5 h-2.5 rounded-xs border border-white/25 shrink-0" style={{ backgroundColor: t }} />
+                  {t}
+                </span>
+              );
             return <React.Fragment key={k}>{t}</React.Fragment>;
           });
         return (
@@ -209,6 +260,7 @@ function Inline({ text }: { text: string }) {
           </React.Fragment>
         );
       })}
+      {palette.length >= 2 && <ColorPaletteStrip colors={palette} />}
     </>
   );
 }

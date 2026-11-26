@@ -35,43 +35,6 @@ let pendingDeepLink = null;
 app.setName("VOX·AI Studio");
 if (process.platform === "darwin") app.setAboutPanelOptions({ applicationName: "VOX·AI Studio" });
 
-// ───────────────────────────── gaya khusus desktop ─────────────────────────────
-
-/**
- * Di macOS jendelanya memakai `titleBarStyle: "hiddenInset"`, jadi tombol merah-kuning-hijau
- * melayang di atas halaman dan menutupi pojok kiri header app.
- *
- * Gaya ini disuntik lewat `webContents.insertCSS`, bukan ditaruh di berkas CSS app, karena:
- * (1) tampilan web di browser sama sekali tidak ikut berubah, dan (2) React tidak bisa
- * membuangnya saat hydration — sempat dicoba lewat atribut di JSX dan atributnya hilang.
- */
-const DESKTOP_CSS = `
-  header:first-of-type {
-    /* ruang untuk tiga tombol jendela macOS */
-    padding-left: 84px !important;
-    -webkit-app-region: drag;
-  }
-  /* apa pun yang bisa diklik harus tetap bisa diklik, bukan ikut menyeret jendela */
-  header:first-of-type button,
-  header:first-of-type a,
-  header:first-of-type input,
-  header:first-of-type select,
-  header:first-of-type textarea,
-  header:first-of-type [role="button"],
-  header:first-of-type [contenteditable="true"] {
-    -webkit-app-region: no-drag;
-  }
-`;
-
-async function applyDesktopCss(contents) {
-  if (process.platform !== "darwin") return;
-  try {
-    await contents.insertCSS(DESKTOP_CSS);
-  } catch {
-    // gagal menyuntik CSS tidak boleh menjatuhkan app; paling header-nya agak sempit
-  }
-}
-
 // ───────────────────────────── jendela ─────────────────────────────
 
 function iconPath() {
@@ -85,15 +48,16 @@ function iconPath() {
 function createWindow() {
   const icon = iconPath();
   mainWindow = new BrowserWindow({
+    title: "VOX·AI Studio",
     width: 1280,
     height: 860,
     minWidth: 900,
     minHeight: 600,
+    frame: true,
     show: false,
     backgroundColor: "#0b0b0f",
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
-    // Header app tingginya 56px; posisikan tombol jendela di tengahnya.
-    ...(process.platform === "darwin" ? { trafficLightPosition: { x: 16, y: 20 } } : {}),
+    // Bingkai jendela standar OS (title bar native + tombol tutup/perkecil/perbesar di atas konten)
+    titleBarStyle: "default",
     ...(icon ? { icon } : {}),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -104,13 +68,9 @@ function createWindow() {
     },
   });
 
-  // `did-finish-load` dipakai agar CSS tetap terpasang setelah reload / navigasi internal.
-  mainWindow.webContents.on("did-finish-load", () => {
-    void applyDesktopCss(mainWindow.webContents);
-  });
-
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
+    mainWindow?.focus();
     if (pendingDeepLink) {
       mainWindow?.webContents.send("vox:deep-link", pendingDeepLink);
       pendingDeepLink = null;

@@ -62,3 +62,7 @@ jarvis-call/.venv/
 # shell desktop (Electron)
 /dist-desktop/
 /.vox-desktop/
+
+# Tauri / Rust build artifacts
+src-tauri/target/
+src-tauri/gen/

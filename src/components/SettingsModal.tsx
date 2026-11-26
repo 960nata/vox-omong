@@ -420,6 +420,38 @@ export function SettingsModal({
   const [modelCatFilter, setModelCatFilter] = useState<string>("all");
   const [isTesting, setIsTesting] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
+  const [probing, setProbing] = useState(false);
+  const [probeData, setProbeData] = useState<{
+    probes: Array<{
+      provider: string;
+      kind?: "local" | "free" | "paid";
+      gatewayUrl?: string;
+      status: "ok" | "error";
+      latencyMs: number;
+      models: Array<{ id: string; tier: "free" | "local" | "paid" }>;
+      note?: string;
+    }>;
+    subscriptions: Array<{ id: string; label: string; subscription: string; installed: boolean; auth: string; detail: string; loginCommand: string; installCommand: string }>;
+  } | null>(null);
+
+  const runModelProbe = async () => {
+    setProbing(true);
+    try {
+      const res = await fetch("/api/providers/probe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: form.apiKey || "", customGatewayUrl: form.customGatewayUrl || "" }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setProbeData({ probes: json.probes || [], subscriptions: json.subscriptions || [] });
+      }
+    } catch {
+      // ignore probe failure
+    } finally {
+      setProbing(false);
+    }
+  };
 
   // MCP State
   const [mcpProviders, setMcpProviders] = useState<Array<{
@@ -844,6 +876,107 @@ export function SettingsModal({
                     <p className="text-[11px] text-fg-3">
                       Arahkan ke server buatanmu sendiri (vLLM, Ollama, LMStudio) atau router prabayar.
                     </p>
+                  </div>
+
+                  {/* Tombol Analisis Model yang Bisa Diakses */}
+                  <div className="pt-2 space-y-2.5">
+                    <button
+                      type="button"
+                      onClick={runModelProbe}
+                      disabled={probing}
+                      className="w-full py-2 px-3 rounded-xl border border-accent/40 bg-accent/10 hover:bg-accent/20 text-accent text-xs font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${probing ? "animate-spin" : ""}`} />
+                      {probing ? "Menganalisis AI Lokal, Key & Model..." : "Scan AI Lokal (Ollama) & Analisis Model yang Bisa Diakses"}
+                    </button>
+
+                    {form.customModel && (
+                      <div className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-[11px] font-mono text-emerald-400">
+                        <span>Model Aktif Pilihanmu: <strong>{form.customModel}</strong></span>
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, customModel: "" })}
+                          className="text-fg-3 hover:text-fg underline"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    )}
+
+                    {probeData && (
+                      <div className="space-y-2.5 p-3 rounded-xl border border-line bg-base/60 text-xs">
+                        {probeData.probes.map((p, idx) => (
+                          <div key={idx} className="space-y-1 border-b border-line/60 pb-2 last:border-b-0 last:pb-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold text-fg flex items-center gap-1.5">
+                                <span className={`w-2 h-2 rounded-full ${p.status === "ok" ? "bg-emerald-400" : "bg-red-400"}`} />
+                                {p.provider}
+                                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded uppercase ${
+                                  p.kind === "local"
+                                    ? "bg-cyan-500/15 text-cyan-400"
+                                    : p.kind === "free"
+                                    ? "bg-emerald-500/15 text-emerald-400"
+                                    : "bg-amber-500/15 text-amber-400"
+                                }`}>
+                                  {p.kind === "local" ? "LOKAL Rp 0" : p.kind === "free" ? "GRATIS" : "PRABAYAR"}
+                                </span>
+                              </span>
+                              {p.latencyMs > 0 && (
+                                <span className="text-[10px] font-mono text-fg-3">{p.latencyMs}ms</span>
+                              )}
+                            </div>
+                            {p.note && <p className="text-[11px] text-fg-3">{p.note}</p>}
+                            {p.models.length > 0 && (
+                              <div className="flex flex-wrap gap-1 pt-1 max-h-32 overflow-y-auto">
+                                {p.models.slice(0, 36).map((m) => {
+                                  const selected = form.customModel === m.id;
+                                  return (
+                                    <button
+                                      key={m.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setForm({
+                                          ...form,
+                                          customModel: m.id,
+                                          ...(p.gatewayUrl ? { customGatewayUrl: p.gatewayUrl } : {}),
+                                        });
+                                      }}
+                                      title={`Klik untuk pakai model ${m.id} (${m.tier === "paid" ? "Prabayar" : "Gratis/Lokal"})`}
+                                      className={`px-2 py-0.5 rounded border text-[10px] font-mono transition-colors cursor-pointer ${
+                                        selected
+                                          ? "bg-accent text-accent-fg border-accent font-semibold"
+                                          : m.tier === "paid"
+                                          ? "bg-raised border-line text-fg-2 hover:border-amber-400/50"
+                                          : "bg-emerald-500/10 border-emerald-500/25 text-emerald-300 hover:border-emerald-400"
+                                      }`}
+                                    >
+                                      {m.id} {m.tier === "free" ? "• FREE" : m.tier === "local" ? "• LOKAL" : ""}
+                                    </button>
+                                  );
+                                })}
+                                {p.models.length > 36 && (
+                                  <span className="text-[10px] font-mono text-fg-3">+{p.models.length - 36} lainnya</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+
+                        {probeData.subscriptions.length > 0 && (
+                          <div className="pt-1 space-y-1">
+                            <div className="text-[10px] font-mono uppercase text-fg-3">CLI Langganan (Codex / Claude / Gemini)</div>
+                            {probeData.subscriptions.map((s) => (
+                              <div key={s.id} className="flex items-center justify-between text-[11px]">
+                                <span className="text-fg-2">{s.label} ({s.subscription})</span>
+                                <span className={`font-mono text-[10px] ${s.installed && s.auth === "subscription" ? "text-emerald-400" : s.installed ? "text-amber-400" : "text-fg-4"}`}>
+                                  {s.installed && s.auth === "subscription" ? "SIAP" : s.installed ? "TERPASANG" : "BELUM ADA"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

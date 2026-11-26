@@ -6,7 +6,7 @@ import { isDeckMessage, isDocFollowUp, isWebExplicit } from "@/lib/deckFlow";
 import { stateOf } from "@/lib/conversationState";
 import { detectSkillList, listSkills, resolveSkill, skillContextFor } from "@/lib/skillHub";
 import { isSkillTask, runSkillEngine } from "@/lib/skillEngine";
-import { buildWebsite, callLLM, detectCodeIntent, hasGeneratedSite, readProjectHtml, restorePreviousWebsite } from "@/lib/codeAgent";
+import { buildWebsite, callLLM, detectCodeIntent, hasGeneratedSite, readProjectHtml, restorePreviousWebsite, runWithCustomGateway } from "@/lib/codeAgent";
 import { buildSite, editSite, hasSite, isSiteKind, readSiteFile, swapPrevSpec, understandSiteMessage, type EditOps } from "@/lib/siteAgent";
 import { detectKind } from "@/lib/designKnowledge";
 import { handleStackMessage, STACK_HONEST } from "@/lib/stackFlow";
@@ -81,6 +81,8 @@ export async function POST(req: Request) {
       message,
       language,
       apiKey,
+      customGatewayUrl,
+      customModel,
       aiMode,
       agentMode = "interactive",
       agentPermission = "manual",
@@ -95,6 +97,13 @@ export async function POST(req: Request) {
     if (!message || typeof message !== "string" || !message.trim()) {
       return NextResponse.json({ success: false, error: "Message is required" }, { status: 400 });
     }
+
+    return await runWithCustomGateway(
+      {
+        url: typeof customGatewayUrl === "string" ? customGatewayUrl : undefined,
+        model: typeof customModel === "string" ? customModel : undefined,
+      },
+      async () => {
 
     const convId = conversationId || "conv-default";
     // Lampiran dokumen (PDF/DOCX/XLSX/...) dikirim sebagai blok <<lampiran:nama>>...<</lampiran>>.
@@ -1426,6 +1435,7 @@ Mau kita edit apa sekarang di website lokalmu? Bilang aja instruksinya, langsung
       userMessage: userMsg,
       assistantMessage: assistantMsg,
       conversationId: convId,
+    });
     });
   } catch (error) {
     console.error("POST /api/chat error:", error);
